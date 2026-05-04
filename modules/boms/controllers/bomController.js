@@ -6,7 +6,11 @@ const Bom = require('../models/bomModel');
 exports.getBoms = async (req, res, next) => {
     try {
         let query = {};
-        if (req.user.role !== 'SUPER_ADMIN') {
+        if (req.user.role === 'SUPER_ADMIN') {
+            if (req.query.entity) {
+                query.entity = req.query.entity;
+            }
+        } else {
             query.entity = req.user.entity;
         }
 
@@ -22,7 +26,9 @@ exports.getBoms = async (req, res, next) => {
 // @access  Private
 exports.createBom = async (req, res, next) => {
     try {
-        if (req.user.role !== 'SUPER_ADMIN') {
+        if (req.user.role === 'SUPER_ADMIN') {
+            // Allow specifying entity in body
+        } else {
             req.body.entity = req.user.entity;
         }
 

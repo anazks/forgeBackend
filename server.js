@@ -24,6 +24,14 @@ app.use('/api/payments', require('./modules/payments/routes/paymentRoutes'));
 app.use('/api/entities', require('./modules/entities/routes/entityRoutes'));
 app.use('/api/menus', require('./modules/menus/routes/menuRoutes'));
 app.use('/api/boms', require('./modules/boms/routes/bomRoutes'));
+app.use('/api/rawmaterials', require('./modules/rawmaterials/routes/rawMaterialRoutes'));
+app.use('/api/foodrequests', require('./modules/foodrequests/routes/foodRequestRoutes'));
+app.use('/api/vendors', require('./modules/vendors/routes/vendorRoutes'));
+app.use('/api/employees', require('./modules/employees/routes/employeeRoutes'));
+app.use('/api/banks', require('./modules/banks/routes/bankRoutes'));
+app.use('/api/events', require('./modules/events/routes/eventRoutes'));
+app.use('/api/expense-categories', require('./modules/expenses/routes/expenseCategoryRoutes'));
+app.use('/api/purchases', require('./modules/purchases/routes/purchaseRoutes'));
 
 // Seed Super Admin if not exists
 const User = require('./modules/users/models/model');

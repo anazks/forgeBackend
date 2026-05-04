@@ -8,7 +8,11 @@ exports.getMenus = async (req, res, next) => {
         let query = {};
         
         // If not SUPER_ADMIN, only show menus for their entity
-        if (req.user.role !== 'SUPER_ADMIN') {
+        if (req.user.role === 'SUPER_ADMIN') {
+            if (req.query.entity) {
+                query.entity = req.query.entity;
+            }
+        } else {
             query.entity = req.user.entity;
         }
 
@@ -25,7 +29,9 @@ exports.getMenus = async (req, res, next) => {
 exports.createMenu = async (req, res, next) => {
     try {
         // If not SUPER_ADMIN, automatically link menu to their entity
-        if (req.user.role !== 'SUPER_ADMIN') {
+        if (req.user.role === 'SUPER_ADMIN') {
+            // Allow specifying entity in body for super admin
+        } else {
             req.body.entity = req.user.entity;
         }
 

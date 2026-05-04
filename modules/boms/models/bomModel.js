@@ -5,13 +5,18 @@ const BomItemSchema = new mongoose.Schema({
         type: String,
         required: [true, 'Please add an item name']
     },
+    materialId: {
+        type: mongoose.Schema.ObjectId,
+        ref: 'RawMaterial',
+        required: false
+    },
     quantity: {
         type: Number,
         required: [true, 'Please add a quantity']
     },
     unit: {
         type: String,
-        enum: ['kg', 'ltr', 'pcs', 'custom'],
+        enum: ['kg', 'ltr', 'pcs', 'gm', 'ml', 'custom'],
         required: [true, 'Please specify a unit']
     },
     customUnit: {
@@ -32,10 +37,15 @@ const BomSchema = new mongoose.Schema({
         type: String,
         required: [true, 'Please add a Dish Name']
     },
+    kitchenPrice: {
+        type: Number,
+        default: 0,
+        min: [0, 'Price cannot be negative']
+    },
     menuItem: {
         type: mongoose.Schema.ObjectId,
         ref: 'Menu',
-        required: false // Optional link to the actual menu item
+        required: false
     },
     items: [BomItemSchema],
     entity: {

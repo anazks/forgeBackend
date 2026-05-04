@@ -18,7 +18,11 @@ exports.getUsers = async (req, res, next) => {
 exports.getMyCenters = async (req, res, next) => {
     try {
         let query = { role: 'CENTERS' };
-        if (req.user.role !== 'SUPER_ADMIN') {
+        if (req.user.role === 'SUPER_ADMIN') {
+            if (req.query.entity) {
+                query.entity = req.query.entity;
+            }
+        } else {
             query.entity = req.user.entity;
         }
         const centers = await User.find(query).populate('entity');
@@ -34,7 +38,11 @@ exports.getMyCenters = async (req, res, next) => {
 exports.getMyKitchens = async (req, res, next) => {
     try {
         let query = { role: 'KITCHEN' };
-        if (req.user.role !== 'SUPER_ADMIN') {
+        if (req.user.role === 'SUPER_ADMIN') {
+            if (req.query.entity) {
+                query.entity = req.query.entity;
+            }
+        } else {
             query.entity = req.user.entity;
         }
         const kitchens = await User.find(query).populate('entity');
@@ -50,7 +58,11 @@ exports.getMyKitchens = async (req, res, next) => {
 exports.getMyStores = async (req, res, next) => {
     try {
         let query = { role: 'STORE' };
-        if (req.user.role !== 'SUPER_ADMIN') {
+        if (req.user.role === 'SUPER_ADMIN') {
+            if (req.query.entity) {
+                query.entity = req.query.entity;
+            }
+        } else {
             query.entity = req.user.entity;
         }
         const stores = await User.find(query).populate('entity');
@@ -66,7 +78,11 @@ exports.getMyStores = async (req, res, next) => {
 exports.getMyResorts = async (req, res, next) => {
     try {
         let query = { role: 'RESORT' };
-        if (req.user.role !== 'SUPER_ADMIN') {
+        if (req.user.role === 'SUPER_ADMIN') {
+            if (req.query.entity) {
+                query.entity = req.query.entity;
+            }
+        } else {
             query.entity = req.user.entity;
         }
         const resorts = await User.find(query).populate('entity');
@@ -82,7 +98,11 @@ exports.getMyResorts = async (req, res, next) => {
 exports.getMyAggregates = async (req, res, next) => {
     try {
         let query = { role: 'AGGRIGATE' };
-        if (req.user.role !== 'SUPER_ADMIN') {
+        if (req.user.role === 'SUPER_ADMIN') {
+            if (req.query.entity) {
+                query.entity = req.query.entity;
+            }
+        } else {
             query.entity = req.user.entity;
         }
         const aggregates = await User.find(query).populate('entity');
