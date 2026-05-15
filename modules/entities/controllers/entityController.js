@@ -1,6 +1,7 @@
 const Entity = require('../models/Entity');
 const User = require('../../users/models/model');
 
+
 // @desc    Create an Entity
 // @route   POST /api/entities
 // @access  Private/SuperAdmin
@@ -67,7 +68,7 @@ exports.getAdminsByEntity = async (req, res, next) => {
 // @access  Private/SuperAdmin
 exports.createEntityWithAdmin = async (req, res, next) => {
     try {
-        const { entityUsername, entityName, location, name, email, password, mobileNo, area, duration } = req.body;
+        const { entityUsername, entityName, location, name, email, password, mobileNo, area, duration, customLicenseDate } = req.body;
 
         // 1. Create Entity
         const entity = await Entity.create({
@@ -76,8 +77,8 @@ exports.createEntityWithAdmin = async (req, res, next) => {
             location
         });
 
-        // 2. Prepare Admin details (copying logic from userController.createAdmin)
-        if (!duration) {
+        // 2. Prepare Admin details
+        if (!duration && !customLicenseDate) {
             return res.status(400).json({ success: false, error: 'Please provide a license duration in months' });
         }
 
@@ -88,8 +89,9 @@ exports.createEntityWithAdmin = async (req, res, next) => {
         const dateStr = today.toISOString().slice(0, 10).replace(/-/g, '');
         const licenseNumber = `${dateStr}-Admin-${serialNumber}@sunserk`;
 
-        const licenseExpires = new Date();
-        licenseExpires.setMonth(licenseExpires.getMonth() + parseInt(duration));
+        const licenseExpires = customLicenseDate
+            ? new Date(customLicenseDate)
+            : new Date(Date.now() + parseInt(duration) * 30 * 24 * 60 * 60 * 1000);
 
         // 3. Create Admin and link to Entity
         const user = await User.create({
@@ -125,7 +127,7 @@ exports.createEntityWithAdmin = async (req, res, next) => {
 // @access  Private/SuperAdmin
 exports.addAdminToEntity = async (req, res, next) => {
     try {
-        const { name, email, password, mobileNo, area, duration, role, commissionRate } = req.body;
+        const { name, email, password, mobileNo, area, duration, role, commissionRate, customLicenseDate } = req.body;
         const entityId = req.params.id;
 
         const entity = await Entity.findById(entityId);
@@ -133,23 +135,20 @@ exports.addAdminToEntity = async (req, res, next) => {
             return res.status(404).json({ success: false, error: 'Entity not found' });
         }
 
-        // Logic for license
-        if (!duration) {
+        if (!duration && !customLicenseDate) {
             return res.status(400).json({ success: false, error: 'Please provide a license duration in months' });
         }
 
-        // Generate a more unique license number
         const today = new Date();
         const dateStr = today.toISOString().slice(0, 10).replace(/-/g, '');
         const randomStr = Math.random().toString(36).substring(2, 6).toUpperCase();
         const entityCode = entity.username.toUpperCase();
         const userRole = role || 'ADMIN';
-        
-        // New Format: FRG-[ENTITY]-[ROLE]-[YYYYMMDD]-[RANDOM]
         const licenseNumber = `FRG-${entityCode}-${userRole}-${dateStr}-${randomStr}`;
 
-        const licenseExpires = new Date();
-        licenseExpires.setMonth(licenseExpires.getMonth() + parseInt(duration));
+        const licenseExpires = customLicenseDate
+            ? new Date(customLicenseDate)
+            : new Date(Date.now() + parseInt(duration) * 30 * 24 * 60 * 60 * 1000);
 
         const user = await User.create({
             name,
@@ -174,6 +173,42 @@ exports.addAdminToEntity = async (req, res, next) => {
                 admin: user
             }
         });
+    } catch (error) {
+        res.status(400).json({ success: false, error: error.message });
+    }
+};
+
+// @desc    Update Entity details
+// @route   PUT /api/entities/:id
+// @access  Private/SuperAdmin
+exports.updateEntity = async (req, res) => {
+    try {
+        const { name, location, username } = req.body;
+        const entity = await Entity.findByIdAndUpdate(
+            req.params.id,
+            { name, location, username },
+            { new: true, runValidators: true }
+        );
+        if (!entity) return res.status(404).json({ success: false, error: 'Entity not found' });
+        res.status(200).json({ success: true, data: entity });
+    } catch (error) {
+        res.status(400).json({ success: false, error: error.message });
+    }
+};
+
+// @desc    Get users with license expiring in next 6 months
+// @route   GET /api/entities/upcoming-renewals
+// @access  Private/SuperAdmin
+exports.getUpcomingRenewals = async (req, res) => {
+    try {
+        const now = new Date();
+        const sixMonthsLater = new Date();
+        sixMonthsLater.setMonth(sixMonthsLater.getMonth() + 6);
+        const users = await User.find({
+            licenseExpires: { $gte: now, $lte: sixMonthsLater },
+            isActive: true
+        }).populate('entity', 'name username').sort({ licenseExpires: 1 });
+        res.status(200).json({ success: true, count: users.length, data: users });
     } catch (error) {
         res.status(400).json({ success: false, error: error.message });
     }

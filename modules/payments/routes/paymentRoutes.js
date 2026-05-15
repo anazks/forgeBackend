@@ -4,7 +4,8 @@ const {
     confirmPayment, 
     getPayments, 
     manualRenewal, 
-    getPaymentStats 
+    getPaymentStats,
+    getMonthlyRevenue
 } = require('../controllers/paymentController');
 const { protect, authorize } = require('../../../middleware/auth');
 
@@ -13,6 +14,7 @@ const router = express.Router();
 router.use(protect);
 
 router.get('/stats', authorize('SUPER_ADMIN'), getPaymentStats);
+router.get('/monthly', authorize('SUPER_ADMIN'), getMonthlyRevenue);
 router.post('/manual-renewal', authorize('SUPER_ADMIN'), manualRenewal);
 
 router.route('/')

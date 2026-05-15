@@ -70,14 +70,13 @@ exports.confirmPayment = async (req, res, next) => {
 // @access  Private (Super Admin)
 exports.manualRenewal = async (req, res, next) => {
     try {
-        const { adminId, amount, duration, paymentType } = req.body;
+        const { adminId, amount, duration, paymentType, customLicenseDate } = req.body;
 
         const admin = await User.findById(adminId).select('+password');
         if (!admin) {
             return res.status(404).json({ success: false, error: 'User not found' });
         }
 
-        // Create a successful payment record immediately
         const payment = await Payment.create({
             admin: adminId,
             amount,
@@ -88,18 +87,20 @@ exports.manualRenewal = async (req, res, next) => {
             paymentDate: new Date()
         });
 
-        // Update User Status and License
         admin.isActive = true;
-        const currentExpire = (admin.licenseExpires && admin.licenseExpires > new Date()) 
-            ? admin.licenseExpires 
-            : new Date();
-        
-        const newExpire = new Date(currentExpire);
-        newExpire.setMonth(newExpire.getMonth() + parseInt(duration));
-        
-        admin.licenseExpires = newExpire;
-        await admin.save();
 
+        if (customLicenseDate) {
+            // Super admin override: use exact date from calendar
+            admin.licenseExpires = new Date(customLicenseDate);
+        } else {
+            // Default: extend by exact 30-day periods from current expiry or today
+            const base = (admin.licenseExpires && admin.licenseExpires > new Date())
+                ? admin.licenseExpires
+                : new Date();
+            admin.licenseExpires = new Date(base.getTime() + parseInt(duration) * 30 * 24 * 60 * 60 * 1000);
+        }
+
+        await admin.save();
         res.status(201).json({ success: true, data: payment, admin });
     } catch (error) {
         res.status(400).json({ success: false, error: error.message });
@@ -138,6 +139,34 @@ exports.getPayments = async (req, res, next) => {
     try {
         const payments = await Payment.find().populate('admin', 'name email licenseNumber');
         res.status(200).json({ success: true, data: payments });
+    } catch (error) {
+        res.status(400).json({ success: false, error: error.message });
+    }
+};
+
+// @desc    Get month-over-month revenue for a calendar year
+// @route   GET /api/payments/monthly?year=2024
+// @access  Private (Super Admin)
+exports.getMonthlyRevenue = async (req, res) => {
+    try {
+        const year = parseInt(req.query.year) || new Date().getFullYear();
+        const start = new Date(year, 0, 1);
+        const end = new Date(year + 1, 0, 1);
+
+        const data = await Payment.aggregate([
+            { $match: { status: 'Success', paymentDate: { $gte: start, $lt: end } } },
+            { $group: { _id: { month: { $month: '$paymentDate' } }, total: { $sum: '$amount' }, count: { $sum: 1 } } },
+            { $sort: { '_id.month': 1 } }
+        ]);
+
+        // Fill all 12 months
+        const months = Array.from({ length: 12 }, (_, i) => {
+            const found = data.find(d => d._id.month === i + 1);
+            return { month: i + 1, total: found?.total || 0, count: found?.count || 0 };
+        });
+
+        const yearTotal = months.reduce((sum, m) => sum + m.total, 0);
+        res.status(200).json({ success: true, year, yearTotal, data: months });
     } catch (error) {
         res.status(400).json({ success: false, error: error.message });
     }

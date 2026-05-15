@@ -149,37 +149,28 @@ exports.login = async (req, res, next) => {
 // @access  Private/SuperAdmin
 exports.createUser = async (req, res, next) => {
     try {
-        const { name, email, password, role, mobileNo, area, duration, entityId } = req.body;
+        const { name, email, password, role, mobileNo, area, duration, entityId, customLicenseDate } = req.body;
 
         if (!role) {
             return res.status(400).json({ success: false, error: 'Please provide a role' });
         }
 
-        let userData = {
-            name,
-            email,
-            password,
-            mobileNo,
-            area,
-            role,
-            entity: entityId
-        };
+        let userData = { name, email, password, mobileNo, area, role, entity: entityId };
 
-        // If role is ADMIN, handle license logic
         if (role === 'ADMIN') {
-            if (!duration) {
+            if (!duration && !customLicenseDate) {
                 return res.status(400).json({ success: false, error: 'Please provide a license duration in months for Admin role' });
             }
 
             const adminCount = await User.countDocuments({ role: 'ADMIN' });
             const serialNumber = (adminCount + 1).toString().padStart(3, '0');
-
             const today = new Date();
             const dateStr = today.toISOString().slice(0, 10).replace(/-/g, '');
             const licenseNumber = `${dateStr}-Admin-${serialNumber}@sunserk`;
 
-            const licenseExpires = new Date();
-            licenseExpires.setMonth(licenseExpires.getMonth() + parseInt(duration));
+            const licenseExpires = customLicenseDate
+                ? new Date(customLicenseDate)
+                : new Date(Date.now() + parseInt(duration) * 30 * 24 * 60 * 60 * 1000);
 
             userData.licenseNumber = licenseNumber;
             userData.licenseExpires = licenseExpires;
@@ -250,7 +241,15 @@ exports.updateUser = async (req, res, next) => {
 
         let fieldsToUpdate = { ...req.body };
         delete fieldsToUpdate._id;
-        delete fieldsToUpdate.password; // Don't allow password update via this route for now
+
+        // If password is provided, hash it before saving
+        if (fieldsToUpdate.password) {
+            const bcrypt = require('bcryptjs');
+            const salt = await bcrypt.genSalt(10);
+            fieldsToUpdate.password = await bcrypt.hash(fieldsToUpdate.password, salt);
+        } else {
+            delete fieldsToUpdate.password;
+        }
 
         user = await User.findByIdAndUpdate(req.params.id, fieldsToUpdate, {
             new: true,

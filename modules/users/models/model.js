@@ -18,7 +18,7 @@ const UserSchema = new mongoose.Schema({
     },
     role: {
         type: String,
-        enum: ['SUPER_ADMIN', 'ADMIN', 'KITCHEN', 'CENTERS', 'COO', 'RESORT', 'AGGRIGATE','STORE'],
+        enum: ['SUPER_ADMIN', 'ADMIN', 'KITCHEN', 'CENTERS', 'COO', 'RESORT', 'AGGRIGATE', 'STORE', 'PARTNER'],
         default: 'ADMIN',
     },
     mobileNo: {
