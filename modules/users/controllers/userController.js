@@ -12,6 +12,18 @@ exports.getUsers = async (req, res, next) => {
     }
 };
 
+// @desc    Get current user profile
+// @route   GET /api/users/me
+// @access  Private
+exports.getMe = async (req, res, next) => {
+    try {
+        const user = await User.findById(req.user.id).populate('entity');
+        res.status(200).json({ success: true, data: user });
+    } catch (error) {
+        res.status(400).json({ success: false, error: error.message });
+    }
+};
+
 // @desc    Get my centers
 // @route   GET /api/users/my-centers
 // @access  Private

@@ -12,13 +12,13 @@ const router = express.Router();
 
 router.use(protect);
 
-router.get('/stats', authorize('SUPER_ADMIN'), getPaymentStats);
-router.post('/manual-renewal', authorize('SUPER_ADMIN'), manualRenewal);
+router.get('/stats', protect, authorize('SUPER_ADMIN', 'COO'), getPaymentStats);
+router.post('/manual-renewal', protect, authorize('SUPER_ADMIN', 'COO'), manualRenewal);
 
 router.route('/')
-    .get(authorize('SUPER_ADMIN'), getPayments)
-    .post(authorize('SUPER_ADMIN', 'ADMIN'), createPayment);
+    .get(protect, authorize('SUPER_ADMIN', 'COO'), getPayments)
+    .post(protect, authorize('SUPER_ADMIN', 'ADMIN', 'COO'), createPayment);
 
-router.put('/:id/confirm', authorize('SUPER_ADMIN'), confirmPayment);
+router.put('/:id/confirm', protect, authorize('SUPER_ADMIN', 'COO'), confirmPayment);
 
 module.exports = router;

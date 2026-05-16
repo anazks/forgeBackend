@@ -13,12 +13,24 @@ exports.getMenus = async (req, res, next) => {
                 query.entity = req.query.entity;
             }
         } else {
+            if (!req.user.entity) {
+                console.warn(`User ${req.user._id} (${req.user.role}) has no entity assigned!`);
+                // Fallback: If no entity, maybe they should see everything or nothing.
+                // For debugging, let's see if there are any menus at all.
+                const allCount = await Menu.countDocuments();
+                console.log(`Total menus in DB: ${allCount}`);
+            }
             query.entity = req.user.entity;
         }
 
+        console.log(`[DEBUG] Fetching menus. Role: ${req.user.role}, EntityID: ${req.user.entity}`);
+        
         const menus = await Menu.find(query);
+        console.log(`[DEBUG] Found ${menus.length} menus for query:`, query);
+        
         res.status(200).json({ success: true, count: menus.length, data: menus });
     } catch (error) {
+        console.error('Error in getMenus:', error);
         res.status(400).json({ success: false, error: error.message });
     }
 };

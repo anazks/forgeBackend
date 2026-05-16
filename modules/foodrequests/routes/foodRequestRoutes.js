@@ -4,11 +4,14 @@ const {
     createFoodRequest,
     approveRequest,
     rejectRequest,
-    seedSampleRequests
+    seedSampleRequests,
+    getDemandSummary
 } = require('../controllers/foodRequestController');
 const { protect } = require('../../../middleware/auth');
 
 const router = express.Router();
+
+router.get('/demand-summary', protect, getDemandSummary);
 
 router.route('/')
     .get(protect, getFoodRequests)

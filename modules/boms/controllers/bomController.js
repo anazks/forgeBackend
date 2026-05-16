@@ -14,9 +14,15 @@ exports.getBoms = async (req, res, next) => {
             query.entity = req.user.entity;
         }
 
+        console.log(`Fetching BOMs for role: ${req.user.role}, entity: ${req.user.entity}`);
+        console.log('BOM Query:', query);
+
         const boms = await Bom.find(query).populate('menuItem');
+        console.log(`Found ${boms.length} BOMs`);
+
         res.status(200).json({ success: true, count: boms.length, data: boms });
     } catch (error) {
+        console.error('Error in getBoms:', error);
         res.status(400).json({ success: false, error: error.message });
     }
 };

@@ -5,8 +5,25 @@ const ExpenseCategory = require('../models/expenseCategoryModel');
 exports.getExpenseCategories = async (req, res) => {
     try {
         let query = {};
+        
         if (req.user.role !== 'SUPER_ADMIN') {
-            query.entity = req.user.entity;
+            // Show global categories OR entity-specific categories
+            query = {
+                $or: [
+                    { entity: req.user.entity },
+                    { entity: { $exists: false } },
+                    { entity: null }
+                ]
+            };
+            
+            // Further filter by location type if applicable
+            if (req.user.role === 'RESORT') {
+                query.$or.push({ applicableLocations: { $in: ['ALL', 'Resort'] } });
+            } else if (req.user.role === 'KITCHEN') {
+                query.$or.push({ applicableLocations: { $in: ['ALL', 'Kitchen'] } });
+            } else if (req.user.role === 'CENTERS') {
+                query.$or.push({ applicableLocations: { $in: ['ALL', 'Center'] } });
+            }
         } else if (req.query.entity) {
             query.entity = req.query.entity;
         }

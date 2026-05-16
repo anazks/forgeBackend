@@ -6,11 +6,11 @@ const router = express.Router();
 
 // Only Super Admin can create/view entities and add admins
 router.route('/')
-    .get(protect, authorize('SUPER_ADMIN'), getEntities)
-    .post(protect, authorize('SUPER_ADMIN'), createEntity);
+    .get(protect, authorize('SUPER_ADMIN', 'COO'), getEntities)
+    .post(protect, authorize('SUPER_ADMIN', 'COO'), createEntity);
 
-router.get('/:id/admins', protect, authorize('SUPER_ADMIN', 'ADMIN'), getAdminsByEntity);
-router.post('/create-with-admin', protect, authorize('SUPER_ADMIN'), createEntityWithAdmin);
-router.post('/:id/add-admin', protect, authorize('SUPER_ADMIN'), addAdminToEntity);
+router.get('/:id/admins', protect, authorize('SUPER_ADMIN', 'ADMIN', 'COO'), getAdminsByEntity);
+router.post('/create-with-admin', protect, authorize('SUPER_ADMIN', 'COO'), createEntityWithAdmin);
+router.post('/:id/add-admin', protect, authorize('SUPER_ADMIN', 'COO'), addAdminToEntity);
 
 module.exports = router;
