@@ -242,11 +242,16 @@ exports.updateUser = async (req, res, next) => {
         let fieldsToUpdate = { ...req.body };
         delete fieldsToUpdate._id;
 
-        // If password is provided, hash it before saving
+        // Only SUPER_ADMIN can update a user's password via this route
         if (fieldsToUpdate.password) {
-            const bcrypt = require('bcryptjs');
-            const salt = await bcrypt.genSalt(10);
-            fieldsToUpdate.password = await bcrypt.hash(fieldsToUpdate.password, salt);
+            if (req.user.role === 'SUPER_ADMIN') {
+                const bcrypt = require('bcryptjs');
+                const salt = await bcrypt.genSalt(10);
+                fieldsToUpdate.password = await bcrypt.hash(fieldsToUpdate.password, salt);
+            } else {
+                // Non-superadmin callers cannot change passwords via this route
+                delete fieldsToUpdate.password;
+            }
         } else {
             delete fieldsToUpdate.password;
         }
