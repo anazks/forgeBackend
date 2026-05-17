@@ -4,6 +4,7 @@ const {
     createFoodRequest,
     approveRequest,
     rejectRequest,
+    receiveRequest,
     seedSampleRequests,
     getDemandSummary
 } = require('../controllers/foodRequestController');
@@ -21,5 +22,6 @@ router.post('/seed-sample', protect, seedSampleRequests);
 
 router.put('/:id/approve', protect, approveRequest);
 router.put('/:id/reject', protect, rejectRequest);
+router.put('/:id/receive', protect, receiveRequest);
 
 module.exports = router;
