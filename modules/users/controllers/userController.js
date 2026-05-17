@@ -124,6 +124,26 @@ exports.getMyAggregates = async (req, res, next) => {
     }
 };
 
+// @desc    Get all locations for my entity
+// @route   GET /api/users/my-locations
+// @access  Private
+exports.getMyLocations = async (req, res, next) => {
+    try {
+        let query = { role: { $in: ['ADMIN', 'KITCHEN', 'CENTERS', 'STORE', 'RESORT', 'AGGREGATE'] } };
+        if (req.user.role === 'SUPER_ADMIN') {
+            if (req.query.entity) {
+                query.entity = req.query.entity;
+            }
+        } else {
+            query.entity = req.user.entity;
+        }
+        const locations = await User.find(query).populate('entity');
+        res.status(200).json({ success: true, count: locations.length, data: locations });
+    } catch (error) {
+        res.status(400).json({ success: false, error: error.message });
+    }
+};
+
 // @desc    Register user
 exports.register = async (req, res, next) => {
     try {

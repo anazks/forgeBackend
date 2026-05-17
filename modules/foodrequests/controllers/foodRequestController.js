@@ -309,9 +309,14 @@ exports.seedSampleRequests = async (req, res) => {
 // @access  Private (ADMIN/SUPER_ADMIN)
 exports.getDemandSummary = async (req, res) => {
     try {
+        const mongoose = require('mongoose');
+        const Inventory = require('../../inventory/models/inventoryModel');
+        const RawMaterial = require('../../rawmaterials/models/rawMaterialModel');
+        const Bom = require('../../boms/models/bomModel');
+        const Bill = require('../../purchases/models/billModel');
+        
         let matchQuery = { status: 'PENDING' };
         if (req.user.role !== 'SUPER_ADMIN') {
-            const mongoose = require('mongoose');
             matchQuery.entity = new mongoose.Types.ObjectId(req.user.entity);
         }
 
@@ -334,116 +339,127 @@ exports.getDemandSummary = async (req, res) => {
             $lt: targetEnd
         };
 
-        const summary = await FoodRequest.aggregate([
-            { $match: matchQuery },
-            { $unwind: "$requestedItems" },
-            {
-                $facet: {
-                    // Branch 1: Menu Items themselves (Totals)
-                    menuItems: [
-                        { $match: { "requestedItems.isMenuItem": true } },
-                        {
-                            $group: {
-                                _id: { 
-                                    name: "$requestedItems.materialName",
-                                    id: { $ifNull: ["$requestedItems.bomId", "$requestedItems.menuId"] }
-                                },
-                                totalQty: { $sum: { $toDouble: "$requestedItems.requestedQty" } },
-                                unit: { $first: "$requestedItems.unit" }
-                            }
-                        },
-                        {
-                            $project: {
-                                _id: 0,
-                                name: "$_id.name",
-                                totalQty: 1,
-                                unit: 1,
-                                type: { $literal: "MENU" }
-                            }
+        const requests = await FoodRequest.find(matchQuery).lean();
+        const boms = await Bom.find(req.user.role !== 'SUPER_ADMIN' ? { entity: req.user.entity } : {}).lean();
+        const rawMaterials = await RawMaterial.find(req.user.role !== 'SUPER_ADMIN' ? { entity: req.user.entity } : {}).lean();
+        const inventories = await Inventory.find(req.user.role !== 'SUPER_ADMIN' ? { entity: req.user.entity } : {}).lean();
+        const pendingBills = await Bill.find(req.user.role !== 'SUPER_ADMIN' ? { entity: req.user.entity, deliveryStatus: 'PENDING' } : { deliveryStatus: 'PENDING' }).lean();
+
+        const demandMap = {}; // { locationId: { materialId: { qty, type, name, unit, moq } } }
+
+        function addDemand(locationId, materialId, qty, isBom, name, unit, moq = 0) {
+            if (!locationId || !materialId) return;
+            const locStr = locationId.toString();
+            const matStr = materialId.toString();
+            
+            if (!demandMap[locStr]) demandMap[locStr] = {};
+            if (!demandMap[locStr][matStr]) {
+                demandMap[locStr][matStr] = { qty: 0, isBom, name, unit, moq };
+            }
+            demandMap[locStr][matStr].qty += qty;
+        }
+
+        function processItem(item, qty, parentLocationId) {
+            if (item.isMenuItem || item.bomId || item.menuId || item.type === 'BOM Item') {
+                // It's a dish/BOM. Find BOM.
+                const bomIdToFind = item.bomId || item.menuId || item.materialId;
+                const bom = boms.find(b => 
+                    b._id.toString() === bomIdToFind?.toString() || 
+                    (b.menuItem && b.menuItem.toString() === bomIdToFind?.toString())
+                );
+                
+                if (bom) {
+                    const prepLoc = bom.preparationLocation?.toString() || parentLocationId;
+                    
+                    // Add demand for the dish itself (stock is always 0 for BOMs)
+                    addDemand(prepLoc, bom._id.toString(), qty, true, bom.dishName, bom.unit || 'pcs');
+
+                    // Explode ingredients
+                    bom.items.forEach(ing => {
+                        const ingQty = ing.quantity * qty;
+                        if (ing.type === 'BOM Item') {
+                            // Nested BOM recursion
+                            processItem({ bomId: ing.materialId, isMenuItem: true }, ingQty, prepLoc);
+                        } else {
+                            // Raw Material
+                            const rm = rawMaterials.find(r => r._id.toString() === ing.materialId?.toString());
+                            addDemand(prepLoc, ing.materialId.toString(), ingQty, false, ing.itemName, ing.unit, rm ? rm.minimumStock : 0);
                         }
-                    ],
-                    // Branch 2: Direct Materials
-                    directMaterials: [
-                        { $match: { "requestedItems.isMenuItem": false, "requestedItems.material": { $ne: null } } },
-                        {
-                            $group: {
-                                _id: "$requestedItems.material",
-                                name: { $first: "$requestedItems.materialName" },
-                                totalQty: { $sum: { $toDouble: "$requestedItems.requestedQty" } },
-                                unit: { $first: "$requestedItems.unit" }
-                            }
-                        }
-                    ],
-                    // Branch 3: Menu Ingredients (BOM ingredients)
-                    menuIngredients: [
-                        { $match: { "requestedItems.isMenuItem": true, "requestedItems.bomId": { $ne: null } } },
-                        {
-                            $addFields: { "requestedItems.bomId": { $toObjectId: "$requestedItems.bomId" } }
-                        },
-                        {
-                            $lookup: {
-                                from: "boms",
-                                localField: "requestedItems.bomId",
-                                foreignField: "_id",
-                                as: "bomDetails"
-                            }
-                        },
-                        { $unwind: "$bomDetails" },
-                        { $unwind: "$bomDetails.items" },
-                        {
-                            $group: {
-                                _id: "$bomDetails.items.materialId",
-                                name: { $first: "$bomDetails.items.itemName" },
-                                totalQty: {
-                                    $sum: {
-                                        $multiply: [
-                                            { $toDouble: "$bomDetails.items.quantity" },
-                                            { $toDouble: "$requestedItems.requestedQty" }
-                                        ]
-                                    }
-                                },
-                                unit: { $first: "$bomDetails.items.unit" }
-                            }
-                        }
-                    ]
+                    });
+                }
+            } else {
+                // Direct Raw Material request from Center
+                const rm = rawMaterials.find(r => r._id.toString() === item.material?.toString());
+                if (rm) {
+                    addDemand(parentLocationId, item.material.toString(), qty, false, item.materialName || rm.name, item.unit || rm.unit, rm.minimumStock || 0);
                 }
             }
-        ]);
+        }
 
-        const result = summary[0];
-        
-        // Process Materials (Combine direct and ingredients)
-        const materialMap = {};
-        [...result.directMaterials, ...result.menuIngredients].forEach(m => {
-            const id = m._id.toString();
-            if (!materialMap[id]) {
-                materialMap[id] = { id, name: m.name, totalQty: 0, unit: m.unit, type: "MATERIAL" };
+        // Process all pending requests
+        requests.forEach(req => {
+            const reqCenterId = req.centerId?.toString();
+            req.requestedItems.forEach(item => {
+                processItem(item, item.requestedQty, reqCenterId);
+            });
+        });
+
+        // Calculate Gaps and format results
+        const results = [];
+        let totalOpenDemands = 0; // Number of unique material shortage lines
+
+        for (const locId in demandMap) {
+            for (const matId in demandMap[locId]) {
+                const d = demandMap[locId][matId];
+                let currentStock = 0;
+                
+                if (!d.isBom) {
+                    // Non-perishable Raw Material: Check Inventory collection
+                    const inv = inventories.find(i => i.locationId?.toString() === locId && i.materialId?.toString() === matId);
+                    if (inv) currentStock = inv.currentStock;
+
+                    // Add incoming stock from pending PRs (Bills)
+                    const incoming = pendingBills.filter(b => b.destinationLocation?.toString() === locId);
+                    incoming.forEach(b => {
+                        b.items.forEach(i => {
+                            if (i.item?.toString() === matId) {
+                                currentStock += (i.quantity || 0);
+                            }
+                        });
+                    });
+                }
+                // If it's a BOM (d.isBom === true), currentStock remains 0 (perishable)
+                
+                const gap = d.qty - currentStock;
+                
+                if (!d.isBom && gap > 0) {
+                    totalOpenDemands++;
+                }
+
+                results.push({
+                    locationId: locId,
+                    materialId: matId,
+                    name: d.name,
+                    type: d.isBom ? 'BOM' : 'MATERIAL',
+                    unit: d.unit,
+                    demand: d.qty,
+                    stock: currentStock,
+                    gap: gap,
+                    moq: d.moq || 0,
+                    suggestedPrQty: Math.max(gap, d.moq || 0)
+                });
             }
-            materialMap[id].totalQty += m.totalQty;
-        });
-
-        const materialSummary = Object.values(materialMap);
-
-        // Lookup stock for materials
-        const mongoose = require('mongoose');
-        const materialIds = materialSummary.map(m => new mongoose.Types.ObjectId(m.id));
-        const RawMaterial = require('../../rawmaterials/models/rawMaterialModel');
-        const stocks = await RawMaterial.find({ _id: { $in: materialIds } }, 'currentStock');
-        const stockMap = stocks.reduce((acc, curr) => ({ ...acc, [curr._id.toString()]: curr.currentStock }), {});
-
-        materialSummary.forEach(m => {
-            m.currentStock = stockMap[m.id] || 0;
-        });
+        }
 
         res.status(200).json({ 
             success: true, 
             data: {
-                menus: result.menuItems,
-                materials: materialSummary
+                totalOpenDemands,
+                items: results
             }
         });
     } catch (error) {
-        console.error('Error in demand summary aggregation:', error);
+        console.error('Error in demand summary logic:', error);
         res.status(400).json({ success: false, error: error.message });
     }
 };

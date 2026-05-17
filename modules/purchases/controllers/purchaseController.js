@@ -2,6 +2,7 @@ const Purchase = require('../models/purchaseModel');
 const PurchaseRequest = require('../models/purchaseRequestModel');
 const Bill = require('../models/billModel');
 const RawMaterial = require('../../rawmaterials/models/rawMaterialModel');
+const Inventory = require('../../inventory/models/inventoryModel');
 
 // @desc    Get all purchases
 // @route   GET /api/purchases
@@ -81,13 +82,42 @@ exports.deletePurchase = async (req, res) => {
 
 // @desc    Create Purchase Request
 // @route   POST /api/purchases/requests
+// @desc    Create Purchase Request
+// @route   POST /api/purchases/requests
 exports.createPurchaseRequest = async (req, res) => {
     try {
         req.body.requestedBy = req.user._id;
         if (req.user.role !== 'SUPER_ADMIN') {
             req.body.entity = req.user.entity;
         }
+
+        // Auto-approve if it comes from the Store Manager gap analysis with a destination location
+        if (req.body.destinationLocation) {
+            req.body.status = 'BILLED';
+        }
+
         const pr = await PurchaseRequest.create(req.body);
+
+        // Instantly generate Bill if auto-approved
+        if (req.body.destinationLocation) {
+            const billItems = req.body.items.map(i => ({
+                item: i.item,
+                itemName: i.itemName,
+                quantity: i.requestedQty,
+                unitPrice: 0,
+                total: 0
+            }));
+            await Bill.create({
+                purchaseRequest: pr._id,
+                vendor: pr.vendor || req.body.vendorId, // Use vendorId if passed directly
+                items: billItems,
+                totalAmount: 0,
+                entity: pr.entity,
+                deliveryStatus: 'PENDING',
+                destinationLocation: req.body.destinationLocation
+            });
+        }
+
         res.status(201).json({ success: true, data: pr });
     } catch (error) {
         res.status(400).json({ success: false, error: error.message });
@@ -101,6 +131,9 @@ exports.getPurchaseRequests = async (req, res) => {
         let query = {};
         if (req.user.role !== 'SUPER_ADMIN') {
             query.entity = req.user.entity;
+        }
+        if (req.user.role === 'CENTERS' || req.user.role === 'KITCHEN') {
+            query.destinationLocation = req.user._id;
         }
         const requests = await PurchaseRequest.find(query)
             .populate('requestedBy', 'name')
@@ -167,6 +200,9 @@ exports.getBills = async (req, res) => {
         if (req.user.role !== 'SUPER_ADMIN') {
             query.entity = req.user.entity;
         }
+        if (req.user.role === 'CENTERS' || req.user.role === 'KITCHEN') {
+            query.destinationLocation = req.user._id;
+        }
         const bills = await Bill.find(query)
             .populate('vendor', 'vendorName')
             .populate('purchaseRequest', 'prCode')
@@ -185,12 +221,17 @@ exports.updateBill = async (req, res) => {
         const oldBill = await Bill.findById(req.params.id);
         const bill = await Bill.findByIdAndUpdate(req.params.id, req.body, { new: true });
         
-        // If delivery status just changed to DELIVERED, update stock
+        // If delivery status just changed to DELIVERED, update stock in Inventory
         if (req.body.deliveryStatus === 'DELIVERED' && oldBill.deliveryStatus !== 'DELIVERED') {
             for (const item of bill.items) {
-                await RawMaterial.findByIdAndUpdate(item.item, {
-                    $inc: { currentStock: item.quantity }
-                });
+                const qtyToAdd = item.receivedQty !== undefined ? item.receivedQty : item.quantity;
+                if (bill.destinationLocation && qtyToAdd > 0) {
+                    await Inventory.findOneAndUpdate(
+                        { materialId: item.item, locationId: bill.destinationLocation, entity: bill.entity },
+                        { $inc: { currentStock: qtyToAdd } },
+                        { upsert: true, new: true }
+                    );
+                }
             }
         }
         

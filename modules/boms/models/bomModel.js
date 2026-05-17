@@ -56,6 +56,11 @@ const BomSchema = new mongoose.Schema({
         ref: 'Menu',
         required: false
     },
+    preparationLocation: {
+        type: mongoose.Schema.ObjectId,
+        ref: 'User',
+        required: false
+    },
     items: [BomItemSchema],
     entity: {
         type: mongoose.Schema.ObjectId,

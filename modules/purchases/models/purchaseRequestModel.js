@@ -40,6 +40,11 @@ const PurchaseRequestSchema = new mongoose.Schema({
         ref: 'Entity',
         required: true
     },
+    destinationLocation: {
+        type: mongoose.Schema.ObjectId,
+        ref: 'User',
+        required: false
+    },
     status: {
         type: String,
         enum: ['PENDING', 'APPROVED', 'REJECTED', 'BILLED'],

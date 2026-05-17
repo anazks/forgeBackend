@@ -21,6 +21,7 @@ const BillSchema = new mongoose.Schema({
         },
         itemName: String,
         quantity: Number,
+        receivedQty: Number,
         unitPrice: Number,
         total: Number
     }],
@@ -45,6 +46,10 @@ const BillSchema = new mongoose.Schema({
     entity: {
         type: mongoose.Schema.ObjectId,
         ref: 'Entity'
+    },
+    destinationLocation: {
+        type: mongoose.Schema.ObjectId,
+        ref: 'User'
     },
     createdAt: {
         type: Date,
