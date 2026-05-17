@@ -27,7 +27,7 @@ const BomItemSchema = new mongoose.Schema({
     },
     type: {
         type: String,
-        enum: ['Raw Material', 'Consumable'],
+        enum: ['Raw Material', 'Consumable', 'BOM Item'],
         required: [true, 'Please specify the item type']
     }
 });
@@ -41,6 +41,15 @@ const BomSchema = new mongoose.Schema({
         type: Number,
         default: 0,
         min: [0, 'Price cannot be negative']
+    },
+    unit: {
+        type: String,
+        enum: ['kg', 'ltr', 'pcs', 'gm', 'ml', 'custom'],
+        default: 'pcs'
+    },
+    customUnit: {
+        type: String,
+        default: ''
     },
     menuItem: {
         type: mongoose.Schema.ObjectId,

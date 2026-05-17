@@ -17,6 +17,10 @@ const RawMaterialSchema = new mongoose.Schema({
         trim: true,
         default: ''
     },
+    category: {
+        type: String,
+        default: ''
+    },
     unit: {
         type: String,
         enum: ['kg', 'ltr', 'pcs', 'gm', 'ml', 'custom'],

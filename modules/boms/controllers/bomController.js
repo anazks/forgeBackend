@@ -17,7 +17,7 @@ exports.getBoms = async (req, res, next) => {
         console.log(`Fetching BOMs for role: ${req.user.role}, entity: ${req.user.entity}`);
         console.log('BOM Query:', query);
 
-        const boms = await Bom.find(query).populate('menuItem');
+        const boms = await Bom.find(query);
         console.log(`Found ${boms.length} BOMs`);
 
         res.status(200).json({ success: true, count: boms.length, data: boms });

@@ -16,9 +16,9 @@ const VendorSchema = new mongoose.Schema({
     gstNumber: {
         type: String
     },
-    vendorCategory: {
-        type: String,
-        required: [true, 'Please add a category']
+    vendorCategories: {
+        type: [String],
+        default: []
     },
     contactPersonName: {
         type: String

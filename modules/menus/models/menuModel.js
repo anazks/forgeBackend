@@ -5,13 +5,13 @@ const MenuSchema = new mongoose.Schema({
         type: String,
         required: [true, 'Please add a menu item name']
     },
-    unitPrice: {
-        type: Number,
-        required: [true, 'Please add a unit price']
+    category: {
+        type: String,
+        default: ''
     },
     unit: {
         type: String,
-        enum: ['kg', 'ltr', 'pcs', 'custom'],
+        enum: ['kg', 'ltr', 'pcs', 'gm', 'ml', 'custom'],
         required: [true, 'Please specify a unit']
     },
     customUnit: {
@@ -23,7 +23,7 @@ const MenuSchema = new mongoose.Schema({
     entity: {
         type: mongoose.Schema.ObjectId,
         ref: 'Entity',
-        required: false // If true, only admins can create for their entity. We'll leave it false so super admin can create global ones, or specify entity.
+        required: false
     },
     createdAt: {
         type: Date,
