@@ -12,6 +12,18 @@ exports.getUsers = async (req, res, next) => {
     }
 };
 
+// @desc    Get current user profile
+// @route   GET /api/users/me
+// @access  Private
+exports.getMe = async (req, res, next) => {
+    try {
+        const user = await User.findById(req.user.id).populate('entity');
+        res.status(200).json({ success: true, data: user });
+    } catch (error) {
+        res.status(400).json({ success: false, error: error.message });
+    }
+};
+
 // @desc    Get my centers
 // @route   GET /api/users/my-centers
 // @access  Private
@@ -93,11 +105,11 @@ exports.getMyResorts = async (req, res, next) => {
 };
 
 // @desc    Get my aggregates
-// @route   GET /api/users/my-aggrigates
+// @route   GET /api/users/my-aggregates
 // @access  Private
 exports.getMyAggregates = async (req, res, next) => {
     try {
-        let query = { role: 'AGGRIGATE' };
+        let query = { role: 'AGGREGATE' };
         if (req.user.role === 'SUPER_ADMIN') {
             if (req.query.entity) {
                 query.entity = req.query.entity;
@@ -302,8 +314,8 @@ exports.deleteUser = async (req, res, next) => {
 
 const sendTokenResponse = (user, statusCode, res) => {
     const token = user.getSignedJwtToken();
-    res.status(statusCode).json({ 
-        success: true, 
+    res.status(statusCode).json({
+        success: true,
         token,
         user: {
             id: user._id,

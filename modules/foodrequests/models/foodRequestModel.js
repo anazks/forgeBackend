@@ -6,12 +6,27 @@ const RequestItemSchema = new mongoose.Schema({
         ref: 'RawMaterial',
         required: false
     },
+    menuId: {
+        type: mongoose.Schema.ObjectId,
+        ref: 'Menu',
+        required: false
+    },
+    bomId: {
+        type: mongoose.Schema.ObjectId,
+        ref: 'Bom',
+        required: false
+    },
+    isMenuItem: {
+        type: Boolean,
+        default: false
+    },
     materialName: { type: String, required: true },
     simpleCode:   { type: String, default: '—' },
     requestedQty: { type: Number, required: true, min: 0 },
     unit:         { type: String, default: 'kg' },
     availableStock: { type: Number, default: null }, // filled at approval time
-    isStockSufficient: { type: Boolean, default: null }
+    isStockSufficient: { type: Boolean, default: null },
+    receivedQty: { type: Number, default: null }
 });
 
 const FoodRequestSchema = new mongoose.Schema({
@@ -29,7 +44,7 @@ const FoodRequestSchema = new mongoose.Schema({
     requestedItems: [RequestItemSchema],
     status: {
         type: String,
-        enum: ['PENDING', 'APPROVED', 'REJECTED', 'PARTIAL'],
+        enum: ['PENDING', 'APPROVED', 'REJECTED', 'PARTIAL', 'RECEIVED'],
         default: 'PENDING'
     },
     notes: { type: String, default: '' },
@@ -39,7 +54,16 @@ const FoodRequestSchema = new mongoose.Schema({
         required: false
     },
     approvedAt: { type: Date },
+    receivedAt: { type: Date },
     rejectionReason: { type: String, default: '' },
+    deliveryDate: {
+        type: Date,
+        default: () => {
+            const tomorrow = new Date();
+            tomorrow.setDate(tomorrow.getDate() + 1);
+            return tomorrow;
+        }
+    },
     createdAt: { type: Date, default: Date.now }
 });
 

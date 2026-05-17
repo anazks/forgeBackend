@@ -32,6 +32,8 @@ app.use('/api/banks', require('./modules/banks/routes/bankRoutes'));
 app.use('/api/events', require('./modules/events/routes/eventRoutes'));
 app.use('/api/expense-categories', require('./modules/expenses/routes/expenseCategoryRoutes'));
 app.use('/api/purchases', require('./modules/purchases/routes/purchaseRoutes'));
+app.use('/api/wastage', require('./modules/wastage/routes/wastageRoutes'));
+app.use('/api/finance', require('./modules/finance/routes/financeRoutes'));
 
 // Seed Super Admin if not exists
 const User = require('./modules/users/models/model');

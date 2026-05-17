@@ -4,11 +4,15 @@ const {
     createFoodRequest,
     approveRequest,
     rejectRequest,
-    seedSampleRequests
+    receiveRequest,
+    seedSampleRequests,
+    getDemandSummary
 } = require('../controllers/foodRequestController');
 const { protect } = require('../../../middleware/auth');
 
 const router = express.Router();
+
+router.get('/demand-summary', protect, getDemandSummary);
 
 router.route('/')
     .get(protect, getFoodRequests)
@@ -18,5 +22,6 @@ router.post('/seed-sample', protect, seedSampleRequests);
 
 router.put('/:id/approve', protect, approveRequest);
 router.put('/:id/reject', protect, rejectRequest);
+router.put('/:id/receive', protect, receiveRequest);
 
 module.exports = router;

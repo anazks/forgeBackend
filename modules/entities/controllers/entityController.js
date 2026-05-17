@@ -157,7 +157,7 @@ exports.addAdminToEntity = async (req, res, next) => {
             mobileNo,
             area,
             role: userRole,
-            commissionRate: userRole === 'AGGRIGATE' ? commissionRate : 0,
+            commissionRate: userRole === 'AGGREGATE' ? commissionRate : 0,
             licenseNumber,
             licenseExpires,
             entity: entity._id
