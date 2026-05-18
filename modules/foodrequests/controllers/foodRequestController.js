@@ -250,13 +250,71 @@ exports.rejectRequest = async (req, res) => {
         if (!foodReq) return res.status(404).json({ success: false, error: 'Request not found' });
 
         foodReq.status = 'REJECTED';
-        foodReq.rejectionReason = req.body.reason || 'Rejected by store manager';
+        foodReq.rejectionReason = req.body.reason || 'Rejected by COO';
         foodReq.approvedBy = req.user._id;
         foodReq.approvedAt = new Date();
         await foodReq.save();
 
         res.status(200).json({ success: true, data: foodReq });
     } catch (error) {
+        res.status(400).json({ success: false, error: error.message });
+    }
+};
+
+// @desc    COO bulk approve/reject items
+// @route   PUT /api/foodrequests/coo-bulk-action
+// @access  Private (COO, ADMIN, SUPER_ADMIN)
+exports.cooBulkAction = async (req, res) => {
+    try {
+        const { actions } = req.body; // Array of { requestId, itemId, action: 'APPROVED' | 'REJECTED', requestedQty }
+
+        if (!actions || !Array.isArray(actions)) {
+            return res.status(400).json({ success: false, error: 'Invalid actions payload' });
+        }
+
+        const requestIds = [...new Set(actions.map(a => a.requestId))];
+        const updatedRequests = [];
+
+        for (const reqId of requestIds) {
+            const foodReq = await FoodRequest.findById(reqId);
+            if (!foodReq) continue;
+
+            const reqActions = actions.filter(a => a.requestId === reqId);
+            
+            for (const act of reqActions) {
+                const item = foodReq.requestedItems.id(act.itemId);
+                if (item) {
+                    item.approvalStatus = act.action;
+                    if (act.requestedQty !== undefined) {
+                        item.requestedQty = Number(act.requestedQty);
+                    }
+                }
+            }
+
+            // Check if all items are acted upon
+            const allActed = foodReq.requestedItems.every(i => i.approvalStatus !== 'PENDING');
+            if (allActed) {
+                const anyRejected = foodReq.requestedItems.some(i => i.approvalStatus === 'REJECTED');
+                const allRejected = foodReq.requestedItems.every(i => i.approvalStatus === 'REJECTED');
+                
+                if (allRejected) {
+                    foodReq.status = 'REJECTED';
+                } else if (anyRejected) {
+                    foodReq.status = 'PARTIAL';
+                } else {
+                    foodReq.status = 'APPROVED';
+                }
+                foodReq.approvedBy = req.user._id;
+                foodReq.approvedAt = new Date();
+            }
+
+            await foodReq.save();
+            updatedRequests.push(foodReq);
+        }
+
+        res.status(200).json({ success: true, data: updatedRequests, message: 'Bulk action applied successfully' });
+    } catch (error) {
+        console.error('COO Bulk Action error:', error);
         res.status(400).json({ success: false, error: error.message });
     }
 };
@@ -307,160 +365,22 @@ exports.seedSampleRequests = async (req, res) => {
 // @desc    Get total raw material demand across all pending requests
 // @route   GET /api/foodrequests/demand-summary
 // @access  Private (ADMIN/SUPER_ADMIN)
-exports.getDemandSummary = async (req, res) => {
+exports.getDemandSummary = async (req, res, next) => {
     try {
-        const mongoose = require('mongoose');
-        const Inventory = require('../../inventory/models/inventoryModel');
-        const RawMaterial = require('../../rawmaterials/models/rawMaterialModel');
-        const Bom = require('../../boms/models/bomModel');
-        const Bill = require('../../purchases/models/billModel');
-        
-        let matchQuery = { status: 'PENDING' };
-        if (req.user.role !== 'SUPER_ADMIN') {
-            matchQuery.entity = new mongoose.Types.ObjectId(req.user.entity);
-        }
-
-        // By default, consolidated view should show demand for tomorrow
-        let targetDate = new Date();
-        targetDate.setDate(targetDate.getDate() + 1);
-
-        if (req.query.date) {
-            targetDate = new Date(req.query.date);
-        }
-
-        const targetStart = new Date(targetDate);
-        targetStart.setHours(0, 0, 0, 0);
-
-        const targetEnd = new Date(targetStart);
-        targetEnd.setDate(targetEnd.getDate() + 1);
-
-        matchQuery.deliveryDate = {
-            $gte: targetStart,
-            $lt: targetEnd
-        };
-
-        const requests = await FoodRequest.find(matchQuery).lean();
-        const boms = await Bom.find(req.user.role !== 'SUPER_ADMIN' ? { entity: req.user.entity } : {}).lean();
-        const rawMaterials = await RawMaterial.find(req.user.role !== 'SUPER_ADMIN' ? { entity: req.user.entity } : {}).lean();
-        const inventories = await Inventory.find(req.user.role !== 'SUPER_ADMIN' ? { entity: req.user.entity } : {}).lean();
-        const pendingBills = await Bill.find(req.user.role !== 'SUPER_ADMIN' ? { entity: req.user.entity, deliveryStatus: 'PENDING' } : { deliveryStatus: 'PENDING' }).lean();
-
-        const demandMap = {}; // { locationId: { materialId: { qty, type, name, unit, moq } } }
-
-        function addDemand(locationId, materialId, qty, isBom, name, unit, moq = 0) {
-            if (!locationId || !materialId) return;
-            const locStr = locationId.toString();
-            const matStr = materialId.toString();
-            
-            if (!demandMap[locStr]) demandMap[locStr] = {};
-            if (!demandMap[locStr][matStr]) {
-                demandMap[locStr][matStr] = { qty: 0, isBom, name, unit, moq };
-            }
-            demandMap[locStr][matStr].qty += qty;
-        }
-
-        function processItem(item, qty, parentLocationId) {
-            if (item.isMenuItem || item.bomId || item.menuId || item.type === 'BOM Item') {
-                // It's a dish/BOM. Find BOM.
-                const bomIdToFind = item.bomId || item.menuId || item.materialId;
-                const bom = boms.find(b => 
-                    b._id.toString() === bomIdToFind?.toString() || 
-                    (b.menuItem && b.menuItem.toString() === bomIdToFind?.toString())
-                );
-                
-                if (bom) {
-                    const prepLoc = bom.preparationLocation?.toString() || parentLocationId;
-                    
-                    // Add demand for the dish itself (stock is always 0 for BOMs)
-                    addDemand(prepLoc, bom._id.toString(), qty, true, bom.dishName, bom.unit || 'pcs');
-
-                    // Explode ingredients
-                    bom.items.forEach(ing => {
-                        const ingQty = ing.quantity * qty;
-                        if (ing.type === 'BOM Item') {
-                            // Nested BOM recursion
-                            processItem({ bomId: ing.materialId, isMenuItem: true }, ingQty, prepLoc);
-                        } else {
-                            // Raw Material
-                            const rm = rawMaterials.find(r => r._id.toString() === ing.materialId?.toString());
-                            addDemand(prepLoc, ing.materialId.toString(), ingQty, false, ing.itemName, ing.unit, rm ? rm.minimumStock : 0);
-                        }
-                    });
-                }
-            } else {
-                // Direct Raw Material request from Center
-                const rm = rawMaterials.find(r => r._id.toString() === item.material?.toString());
-                if (rm) {
-                    addDemand(parentLocationId, item.material.toString(), qty, false, item.materialName || rm.name, item.unit || rm.unit, rm.minimumStock || 0);
-                }
-            }
-        }
-
-        // Process all pending requests
-        requests.forEach(req => {
-            const reqCenterId = req.centerId?.toString();
-            req.requestedItems.forEach(item => {
-                processItem(item, item.requestedQty, reqCenterId);
-            });
-        });
-
-        // Calculate Gaps and format results
-        const results = [];
-        let totalOpenDemands = 0; // Number of unique material shortage lines
-
-        for (const locId in demandMap) {
-            for (const matId in demandMap[locId]) {
-                const d = demandMap[locId][matId];
-                let currentStock = 0;
-                
-                if (!d.isBom) {
-                    // Non-perishable Raw Material: Check Inventory collection
-                    const inv = inventories.find(i => i.locationId?.toString() === locId && i.materialId?.toString() === matId);
-                    if (inv) currentStock = inv.currentStock;
-
-                    // Add incoming stock from pending PRs (Bills)
-                    const incoming = pendingBills.filter(b => b.destinationLocation?.toString() === locId);
-                    incoming.forEach(b => {
-                        b.items.forEach(i => {
-                            if (i.item?.toString() === matId) {
-                                currentStock += (i.quantity || 0);
-                            }
-                        });
-                    });
-                }
-                // If it's a BOM (d.isBom === true), currentStock remains 0 (perishable)
-                
-                const gap = d.qty - currentStock;
-                
-                if (!d.isBom && gap > 0) {
-                    totalOpenDemands++;
-                }
-
-                results.push({
-                    locationId: locId,
-                    materialId: matId,
-                    name: d.name,
-                    type: d.isBom ? 'BOM' : 'MATERIAL',
-                    unit: d.unit,
-                    demand: d.qty,
-                    stock: currentStock,
-                    gap: gap,
-                    moq: d.moq || 0,
-                    suggestedPrQty: Math.max(gap, d.moq || 0)
-                });
-            }
-        }
-
+        const result = await require('../services/foodRequestService').getDemandSummary(
+            req.user.entity,
+            req.user.role,
+            req.query.date
+        );
         res.status(200).json({ 
             success: true, 
             data: {
-                totalOpenDemands,
-                items: results
+                totalOpenDemands: result.totalOpenDemands,
+                items: result.data
             }
         });
     } catch (error) {
-        console.error('Error in demand summary logic:', error);
-        res.status(400).json({ success: false, error: error.message });
+        next(error);
     }
 };
 
@@ -478,8 +398,7 @@ exports.receiveRequest = async (req, res) => {
             return res.status(400).json({ success: false, error: 'Request already marked as received' });
         }
 
-        // Adjust stock if there's a discrepancy between approved/requested qty and received qty
-        // Since stock was deducted at 'APPROVE' stage based on requestedQty
+        // Deduct stock based on received quantity, as COO approval does not deduct stock anymore.
         for (const item of items) {
             const originalItem = foodReq.requestedItems.find(i => 
                 i.materialName === item.materialName && 
@@ -489,29 +408,27 @@ exports.receiveRequest = async (req, res) => {
             );
 
             if (originalItem && item.receivedQty !== undefined) {
-                const diff = Number(originalItem.requestedQty) - Number(item.receivedQty);
+                const recQty = Number(item.receivedQty);
                 
-                if (diff !== 0) {
-                    // If diff > 0 (received less), add back to stock
-                    // If diff < 0 (received more), deduct from stock
+                if (recQty > 0) {
                     if (originalItem.isMenuItem) {
                         const query = originalItem.bomId ? { _id: originalItem.bomId } : { menuItem: originalItem.menuId };
                         const bom = await Bom.findOne(query);
                         if (bom) {
                             for (const ingredient of bom.items) {
-                                const diffQty = ingredient.quantity * diff;
+                                const deductQty = ingredient.quantity * recQty;
                                 await RawMaterial.findByIdAndUpdate(ingredient.materialId, {
-                                    $inc: { currentStock: diffQty }
+                                    $inc: { currentStock: -deductQty }
                                 });
                             }
                         }
                     } else if (originalItem.material) {
                         await RawMaterial.findByIdAndUpdate(originalItem.material, {
-                            $inc: { currentStock: diff }
+                            $inc: { currentStock: -recQty }
                         });
                     }
                 }
-                originalItem.receivedQty = Number(item.receivedQty);
+                originalItem.receivedQty = recQty;
             }
         }
 

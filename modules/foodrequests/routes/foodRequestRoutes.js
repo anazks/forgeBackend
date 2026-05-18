@@ -6,7 +6,8 @@ const {
     rejectRequest,
     receiveRequest,
     seedSampleRequests,
-    getDemandSummary
+    getDemandSummary,
+    cooBulkAction
 } = require('../controllers/foodRequestController');
 const { protect } = require('../../../middleware/auth');
 
@@ -19,6 +20,8 @@ router.route('/')
     .post(protect, createFoodRequest);
 
 router.post('/seed-sample', protect, seedSampleRequests);
+
+router.put('/coo-bulk-action', protect, cooBulkAction);
 
 router.put('/:id/approve', protect, approveRequest);
 router.put('/:id/reject', protect, rejectRequest);

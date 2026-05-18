@@ -24,6 +24,11 @@ const RequestItemSchema = new mongoose.Schema({
     simpleCode:   { type: String, default: '—' },
     requestedQty: { type: Number, required: true, min: 0 },
     unit:         { type: String, default: 'kg' },
+    approvalStatus: {
+        type: String,
+        enum: ['PENDING', 'APPROVED', 'REJECTED'],
+        default: 'PENDING'
+    },
     availableStock: { type: Number, default: null }, // filled at approval time
     isStockSufficient: { type: Boolean, default: null },
     receivedQty: { type: Number, default: null }

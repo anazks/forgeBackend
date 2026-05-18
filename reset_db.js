@@ -10,13 +10,14 @@ const Inventory = require('./modules/inventory/models/inventoryModel');
 const Menu = require('./modules/menus/models/menuModel');
 const MenuRate = require('./modules/menus/models/menuRateModel');
 
-// Purchase models if they exist (ignoring if not)
-let PurchaseRequest, PurchaseBill;
+// Purchase models
+let Purchase, PurchaseRequest, PurchaseBill;
 try {
-  PurchaseRequest = require('./modules/purchase/models/purchaseRequestModel');
-  PurchaseBill = require('./modules/purchase/models/purchaseBillModel');
+  Purchase = require('./modules/purchases/models/purchaseModel');
+  PurchaseRequest = require('./modules/purchases/models/purchaseRequestModel');
+  PurchaseBill = require('./modules/purchases/models/billModel');
 } catch (e) {
-  // Ignore
+  console.error("Error loading purchase models:", e.message);
 }
 
 async function run() {
@@ -57,6 +58,10 @@ async function run() {
     }
 
     if (target === 'all' || target === 'purchase') {
+      if (Purchase) {
+        await Purchase.deleteMany({});
+        console.log('Cleared Purchases');
+      }
       if (PurchaseRequest) {
         await PurchaseRequest.deleteMany({});
         console.log('Cleared Purchase Requests');

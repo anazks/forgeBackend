@@ -4,23 +4,19 @@ const Bill = require('../models/billModel');
 const RawMaterial = require('../../rawmaterials/models/rawMaterialModel');
 const Inventory = require('../../inventory/models/inventoryModel');
 
+const purchaseService = require('../services/purchaseService');
+const rawMaterialService = require('../../rawmaterials/services/rawMaterialService');
+
 // @desc    Get all purchases
 // @route   GET /api/purchases
-exports.getPurchases = async (req, res) => {
+exports.getPurchases = async (req, res, next) => {
     try {
-        let query = {};
-        if (req.user.role !== 'SUPER_ADMIN') {
-            query.entity = req.user.entity;
-        }
-
-        const purchases = await Purchase.find(query)
-            .populate('item', 'name unit')
-            .populate('vendor', 'vendorName')
-            .sort({ purchaseDate: -1 });
+        const isAdmin = req.user.role === 'SUPER_ADMIN';
+        const purchases = await purchaseService.getPurchasesByEntity(req.user.entity, isAdmin);
 
         // Calculate stats for top 3 dashboard
-        const totalSpent = purchases.reduce((acc, curr) => acc + curr.totalCost, 0);
-        const totalItems = purchases.reduce((acc, curr) => acc + curr.quantity, 0);
+        const totalSpent = purchases.reduce((acc, curr) => acc + (curr.totalCost || 0), 0);
+        const totalItems = purchases.reduce((acc, curr) => acc + (curr.quantity || 0), 0);
         const recentCount = purchases.filter(p => {
             const d = new Date();
             d.setDate(d.getDate() - 7);
@@ -34,47 +30,40 @@ exports.getPurchases = async (req, res) => {
             data: purchases 
         });
     } catch (error) {
-        res.status(400).json({ success: false, error: error.message });
+        next(error);
     }
 };
 
 // @desc    Create purchase
 // @route   POST /api/purchases
-exports.createPurchase = async (req, res) => {
+exports.createPurchase = async (req, res, next) => {
     try {
         req.body.user = req.user._id;
         if (req.user.role !== 'SUPER_ADMIN') {
             req.body.entity = req.user.entity;
         }
 
-        // Fix: If vendor is empty string, set to null
-        if (req.body.vendor === '') {
-            delete req.body.vendor;
-        }
-        
-        const purchase = await Purchase.create(req.body);
+        const purchase = await purchaseService.createPurchase(req.body);
         res.status(201).json({ success: true, data: purchase });
     } catch (error) {
-        res.status(400).json({ success: false, error: error.message });
+        next(error);
     }
 };
 
 // @desc    Delete purchase
 // @route   DELETE /api/purchases/:id
-exports.deletePurchase = async (req, res) => {
+exports.deletePurchase = async (req, res, next) => {
     try {
-        const purchase = await Purchase.findById(req.params.id);
-        if (!purchase) return res.status(404).json({ success: false, error: 'Purchase not found' });
+        const { itemId, quantity } = await purchaseService.deletePurchase(req.params.id);
         
-        // Reverse stock update
-        await RawMaterial.findByIdAndUpdate(purchase.item, {
-            $inc: { currentStock: -purchase.quantity }
-        });
+        // Reverse stock update using cross-domain service call
+        if (itemId) {
+            await rawMaterialService.adjustStock(itemId, -quantity);
+        }
 
-        await purchase.deleteOne();
         res.status(200).json({ success: true, data: {} });
     } catch (error) {
-        res.status(400).json({ success: false, error: error.message });
+        next(error);
     }
 };
 
@@ -94,6 +83,23 @@ exports.createPurchaseRequest = async (req, res) => {
         // Auto-approve if it comes from the Store Manager gap analysis with a destination location
         if (req.body.destinationLocation) {
             req.body.status = 'BILLED';
+            
+            // Race Condition Mitigation: Prevent duplicate PRs for same items/location within last 1 hour
+            const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+            const materialIds = req.body.items.map(i => i.item?.toString()).filter(Boolean);
+            
+            const existingPr = await PurchaseRequest.findOne({
+                destinationLocation: req.body.destinationLocation,
+                createdAt: { $gte: oneHourAgo },
+                'items.item': { $in: materialIds }
+            }).populate('requestedBy', 'name');
+
+            if (existingPr) {
+                return res.status(400).json({ 
+                    success: false, 
+                    error: `A Purchase Request for one or more of these items was already raised recently by ${existingPr.requestedBy?.name || 'another user'}. Please refresh the Gap Analysis.` 
+                });
+            }
         }
 
         const pr = await PurchaseRequest.create(req.body);
