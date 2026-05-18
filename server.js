@@ -25,7 +25,7 @@ app.use('/api/entities', require('./modules/entities/routes/entityRoutes'));
 app.use('/api/menus', require('./modules/menus/routes/menuRoutes'));
 app.use('/api/boms', require('./modules/boms/routes/bomRoutes'));
 app.use('/api/rawmaterials', require('./modules/rawmaterials/routes/rawMaterialRoutes'));
-app.use('/api/foodrequests', require('./modules/foodrequests/routes/foodRequestRoutes'));
+app.use('/api/foodrequests', require('./modules/stockrequests/routes/stockRequestRoutes'));
 app.use('/api/vendors', require('./modules/vendors/routes/vendorRoutes'));
 app.use('/api/employees', require('./modules/employees/routes/employeeRoutes'));
 app.use('/api/banks', require('./modules/banks/routes/bankRoutes'));

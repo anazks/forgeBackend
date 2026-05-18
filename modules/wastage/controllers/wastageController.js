@@ -1,5 +1,5 @@
 const Wastage = require('../models/wastageModel');
-const FoodRequest = require('../../foodrequests/models/foodRequestModel');
+const FoodRequest = require('../../stockrequests/models/stockRequestModel');
 const MenuRate = require('../../menus/models/menuRateModel');
 
 // @desc    Get or create today's wastage record for a center

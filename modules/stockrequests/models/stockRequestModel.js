@@ -34,7 +34,7 @@ const RequestItemSchema = new mongoose.Schema({
     receivedQty: { type: Number, default: null }
 });
 
-const FoodRequestSchema = new mongoose.Schema({
+const StockRequestSchema = new mongoose.Schema({
     centerName: { type: String, required: [true, 'Please provide the center name'] },
     centerId: {
         type: mongoose.Schema.ObjectId,
@@ -72,4 +72,6 @@ const FoodRequestSchema = new mongoose.Schema({
     createdAt: { type: Date, default: Date.now }
 });
 
-module.exports = mongoose.model('FoodRequest', FoodRequestSchema);
+// Keep the Mongoose model name as 'FoodRequest' to preserve the existing
+// MongoDB collection ('foodrequests') without any data migration.
+module.exports = mongoose.model('FoodRequest', StockRequestSchema);

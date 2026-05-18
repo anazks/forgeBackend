@@ -1,11 +1,12 @@
-const FoodRequest = require('../models/foodRequestModel');
+const StockRequest = require('../models/stockRequestModel');
 const RawMaterial = require('../../rawmaterials/models/rawMaterialModel');
 const Bom = require('../../boms/models/bomModel');
+const { AppError } = require('../../../middleware/errorHandler');
 
-// @desc    Get all food requests
+// @desc    Get all stock requests
 // @route   GET /api/foodrequests
 // @access  Private
-exports.getFoodRequests = async (req, res) => {
+exports.getStockRequests = async (req, res, next) => {
     try {
         let query = {};
         if (req.user.role === 'SUPER_ADMIN') {
@@ -17,7 +18,7 @@ exports.getFoodRequests = async (req, res) => {
             if (req.query.centerId) query.centerId = req.query.centerId;
         }
 
-        const requests = await FoodRequest.find(query)
+        const requests = await StockRequest.find(query)
             .populate('approvedBy', 'name')
             .populate('requestedItems.bomId')
             .sort({ createdAt: -1 })
@@ -69,14 +70,14 @@ exports.getFoodRequests = async (req, res) => {
 
         res.status(200).json({ success: true, count: requests.length, data: requests });
     } catch (error) {
-        res.status(400).json({ success: false, error: error.message });
+        next(error);
     }
 };
 
-// @desc    Create a food request
+// @desc    Create a stock request
 // @route   POST /api/foodrequests
 // @access  Private
-exports.createFoodRequest = async (req, res) => {
+exports.createStockRequest = async (req, res, next) => {
     try {
         if (req.user.role !== 'SUPER_ADMIN') {
             req.body.entity = req.user.entity;
@@ -87,7 +88,7 @@ exports.createFoodRequest = async (req, res) => {
         normalizedDate.setHours(0, 0, 0, 0);
 
         // Try to find a pending request for this center on this normalized delivery date
-        let existingRequest = await FoodRequest.findOne({
+        let existingRequest = await StockRequest.findOne({
             centerId,
             deliveryDate: {
                 $gte: normalizedDate,
@@ -116,38 +117,32 @@ exports.createFoodRequest = async (req, res) => {
         }
 
         // Otherwise create new
-        const request = await FoodRequest.create(req.body);
+        const request = await StockRequest.create(req.body);
         res.status(201).json({ success: true, data: request });
     } catch (error) {
-        console.error('Error creating food request:', error);
-        
-        // Handle Mongoose validation errors specifically
-        if (error.name === 'ValidationError') {
-            const messages = Object.values(error.errors).map(val => val.message);
-            return res.status(400).json({ success: false, error: messages.join(', ') });
-        }
-        
-        res.status(400).json({ success: false, error: error.message });
+        next(error);
     }
 };
 
-// @desc    Approve a food request (checks stock)
+// @desc    Approve a stock request (checks stock)
 // @route   PUT /api/foodrequests/:id/approve
-// @access  Private (STORE/ADMIN/SUPER_ADMIN)
-exports.approveRequest = async (req, res) => {
+// @access  Private (STORE/ADMIN/SUPER_ADMIN/COO)
+exports.approveRequest = async (req, res, next) => {
     try {
-        const foodReq = await FoodRequest.findById(req.params.id);
-        if (!foodReq) return res.status(404).json({ success: false, error: 'Request not found' });
+        const stockReq = await StockRequest.findById(req.params.id);
+        if (!stockReq) {
+            throw new AppError('Request not found', 404);
+        }
 
-        if (foodReq.status === 'APPROVED') {
-            return res.status(400).json({ success: false, error: 'Request already approved' });
+        if (stockReq.status === 'APPROVED') {
+            throw new AppError('Request already approved', 400);
         }
 
         // Check stock for all items in request
         let allSufficient = true;
         const updatedItems = [];
 
-        for (const item of foodReq.requestedItems) {
+        for (const item of stockReq.requestedItems) {
             let availableStock = null;
             let isSufficient = true;
 
@@ -169,7 +164,6 @@ exports.approveRequest = async (req, res) => {
                     }
                     availableStock = isSufficient ? 1 : 0; // Binary flag for menu items
                 } else {
-                    // No BOM found, assume direct menu item with no stock tracking or mark as insufficient
                     isSufficient = false; 
                 }
             } else if (item.material) {
@@ -192,17 +186,17 @@ exports.approveRequest = async (req, res) => {
         // Determine status
         const status = allSufficient ? 'APPROVED' : 'PARTIAL';
 
-        foodReq.requestedItems = updatedItems;
-        foodReq.status = status;
-        foodReq.approvedBy = req.user._id;
-        foodReq.approvedAt = new Date();
-        await foodReq.save();
+        stockReq.requestedItems = updatedItems;
+        stockReq.status = status;
+        stockReq.approvedBy = req.user._id;
+        stockReq.approvedAt = new Date();
+        await stockReq.save();
 
         let activityLog = [];
 
         // If fully approved, deduct stock
         if (allSufficient) {
-            for (const item of foodReq.requestedItems) {
+            for (const item of stockReq.requestedItems) {
                 if (item.isMenuItem) {
                     const query = item.bomId ? { _id: item.bomId } : { menuItem: item.menuId };
                     const bom = await Bom.findOne(query);
@@ -230,59 +224,61 @@ exports.approveRequest = async (req, res) => {
 
         res.status(200).json({
             success: true,
-            data: foodReq,
+            data: stockReq,
             stockStatus: allSufficient ? 'ALL_AVAILABLE' : 'INSUFFICIENT',
             message: allSufficient
                 ? `Request approved.${deductionDetails}`
                 : 'Some items have insufficient stock. Request marked PARTIAL.'
         });
     } catch (error) {
-        res.status(400).json({ success: false, error: error.message });
+        next(error);
     }
 };
 
-// @desc    Reject a food request
+// @desc    Reject a stock request
 // @route   PUT /api/foodrequests/:id/reject
 // @access  Private
-exports.rejectRequest = async (req, res) => {
+exports.rejectRequest = async (req, res, next) => {
     try {
-        const foodReq = await FoodRequest.findById(req.params.id);
-        if (!foodReq) return res.status(404).json({ success: false, error: 'Request not found' });
+        const stockReq = await StockRequest.findById(req.params.id);
+        if (!stockReq) {
+            throw new AppError('Request not found', 404);
+        }
 
-        foodReq.status = 'REJECTED';
-        foodReq.rejectionReason = req.body.reason || 'Rejected by COO';
-        foodReq.approvedBy = req.user._id;
-        foodReq.approvedAt = new Date();
-        await foodReq.save();
+        stockReq.status = 'REJECTED';
+        stockReq.rejectionReason = req.body.reason || 'Rejected';
+        stockReq.approvedBy = req.user._id;
+        stockReq.approvedAt = new Date();
+        await stockReq.save();
 
-        res.status(200).json({ success: true, data: foodReq });
+        res.status(200).json({ success: true, data: stockReq });
     } catch (error) {
-        res.status(400).json({ success: false, error: error.message });
+        next(error);
     }
 };
 
 // @desc    COO bulk approve/reject items
 // @route   PUT /api/foodrequests/coo-bulk-action
 // @access  Private (COO, ADMIN, SUPER_ADMIN)
-exports.cooBulkAction = async (req, res) => {
+exports.cooBulkAction = async (req, res, next) => {
     try {
         const { actions } = req.body; // Array of { requestId, itemId, action: 'APPROVED' | 'REJECTED', requestedQty }
 
         if (!actions || !Array.isArray(actions)) {
-            return res.status(400).json({ success: false, error: 'Invalid actions payload' });
+            throw new AppError('Invalid actions payload', 400);
         }
 
         const requestIds = [...new Set(actions.map(a => a.requestId))];
         const updatedRequests = [];
 
         for (const reqId of requestIds) {
-            const foodReq = await FoodRequest.findById(reqId);
-            if (!foodReq) continue;
+            const stockReq = await StockRequest.findById(reqId);
+            if (!stockReq) continue;
 
             const reqActions = actions.filter(a => a.requestId === reqId);
             
             for (const act of reqActions) {
-                const item = foodReq.requestedItems.id(act.itemId);
+                const item = stockReq.requestedItems.id(act.itemId);
                 if (item) {
                     item.approvalStatus = act.action;
                     if (act.requestedQty !== undefined) {
@@ -292,44 +288,43 @@ exports.cooBulkAction = async (req, res) => {
             }
 
             // Check if all items are acted upon
-            const allActed = foodReq.requestedItems.every(i => i.approvalStatus !== 'PENDING');
+            const allActed = stockReq.requestedItems.every(i => i.approvalStatus !== 'PENDING');
             if (allActed) {
-                const anyRejected = foodReq.requestedItems.some(i => i.approvalStatus === 'REJECTED');
-                const allRejected = foodReq.requestedItems.every(i => i.approvalStatus === 'REJECTED');
+                const anyRejected = stockReq.requestedItems.some(i => i.approvalStatus === 'REJECTED');
+                const allRejected = stockReq.requestedItems.every(i => i.approvalStatus === 'REJECTED');
                 
                 if (allRejected) {
-                    foodReq.status = 'REJECTED';
+                    stockReq.status = 'REJECTED';
                 } else if (anyRejected) {
-                    foodReq.status = 'PARTIAL';
+                    stockReq.status = 'PARTIAL';
                 } else {
-                    foodReq.status = 'APPROVED';
+                    stockReq.status = 'APPROVED';
                 }
-                foodReq.approvedBy = req.user._id;
-                foodReq.approvedAt = new Date();
+                stockReq.approvedBy = req.user._id;
+                stockReq.approvedAt = new Date();
             }
 
-            await foodReq.save();
-            updatedRequests.push(foodReq);
+            await stockReq.save();
+            updatedRequests.push(stockReq);
         }
 
         res.status(200).json({ success: true, data: updatedRequests, message: 'Bulk action applied successfully' });
     } catch (error) {
-        console.error('COO Bulk Action error:', error);
-        res.status(400).json({ success: false, error: error.message });
+        next(error);
     }
 };
 
-// @desc    Seed sample food requests (demo only)
+// @desc    Seed sample stock requests (demo only)
 // @route   POST /api/foodrequests/seed-sample
 // @access  Private/Admin
-exports.seedSampleRequests = async (req, res) => {
+exports.seedSampleRequests = async (req, res, next) => {
     try {
         let query = {};
         if (req.user.role !== 'SUPER_ADMIN') query.entity = req.user.entity;
 
         const materials = await RawMaterial.find(query).limit(5);
         if (materials.length === 0) {
-            return res.status(400).json({ success: false, error: 'No raw materials found. Add items in Item Config first.' });
+            throw new AppError('No raw materials found. Add items in Item Config first.', 400);
         }
 
         const centerNames = ['North Center', 'South Center', 'East Wing Center', 'West Branch'];
@@ -355,19 +350,19 @@ exports.seedSampleRequests = async (req, res) => {
             });
         }
 
-        const created = await FoodRequest.insertMany(sampleRequests);
+        const created = await StockRequest.insertMany(sampleRequests);
         res.status(201).json({ success: true, count: created.length, data: created });
     } catch (error) {
-        res.status(400).json({ success: false, error: error.message });
+        next(error);
     }
 };
 
 // @desc    Get total raw material demand across all pending requests
 // @route   GET /api/foodrequests/demand-summary
-// @access  Private (ADMIN/SUPER_ADMIN)
+// @access  Private (STORE/ADMIN/SUPER_ADMIN/COO)
 exports.getDemandSummary = async (req, res, next) => {
     try {
-        const result = await require('../services/foodRequestService').getDemandSummary(
+        const result = await require('../services/stockRequestService').getDemandSummary(
             req.user.entity,
             req.user.role,
             req.query.date
@@ -384,23 +379,25 @@ exports.getDemandSummary = async (req, res, next) => {
     }
 };
 
-// @desc    Receive food items at center (updates actual receipt counts)
+// @desc    Receive stock items at center (updates actual receipt counts)
 // @route   PUT /api/foodrequests/:id/receive
 // @access  Private (CENTERS)
-exports.receiveRequest = async (req, res) => {
+exports.receiveRequest = async (req, res, next) => {
     try {
         const { items } = req.body;
-        const foodReq = await FoodRequest.findById(req.params.id);
+        const stockReq = await StockRequest.findById(req.params.id);
         
-        if (!foodReq) return res.status(404).json({ success: false, error: 'Request not found' });
+        if (!stockReq) {
+            throw new AppError('Request not found', 404);
+        }
         
-        if (foodReq.status === 'RECEIVED') {
-            return res.status(400).json({ success: false, error: 'Request already marked as received' });
+        if (stockReq.status === 'RECEIVED') {
+            throw new AppError('Request already marked as received', 400);
         }
 
-        // Deduct stock based on received quantity, as COO approval does not deduct stock anymore.
+        // Deduct stock based on received quantity
         for (const item of items) {
-            const originalItem = foodReq.requestedItems.find(i => 
+            const originalItem = stockReq.requestedItems.find(i => 
                 i.materialName === item.materialName && 
                 (i.material?.toString() === item.material?.toString() || 
                  i.bomId?.toString() === item.bomId?.toString() ||
@@ -432,13 +429,12 @@ exports.receiveRequest = async (req, res) => {
             }
         }
 
-        foodReq.status = 'RECEIVED';
-        foodReq.receivedAt = new Date();
-        await foodReq.save();
+        stockReq.status = 'RECEIVED';
+        stockReq.receivedAt = new Date();
+        await stockReq.save();
 
-        res.status(200).json({ success: true, data: foodReq, message: 'Receipt confirmed and stock adjusted' });
+        res.status(200).json({ success: true, data: stockReq, message: 'Receipt confirmed and stock adjusted' });
     } catch (error) {
-        console.error('Error receiving request:', error);
-        res.status(400).json({ success: false, error: error.message });
+        next(error);
     }
 };

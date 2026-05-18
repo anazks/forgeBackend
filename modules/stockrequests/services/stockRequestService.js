@@ -1,4 +1,4 @@
-const FoodRequest = require('../models/foodRequestModel');
+const StockRequest = require('../models/stockRequestModel');
 const mongoose = require('mongoose');
 const { AppError } = require('../../../middleware/errorHandler');
 
@@ -7,7 +7,7 @@ const purchaseService = require('../../purchases/services/purchaseService');
 const rawMaterialService = require('../../rawmaterials/services/rawMaterialService');
 const bomService = require('../../boms/services/bomService');
 
-class FoodRequestService {
+class StockRequestService {
     async getDemandSummary(entityId, userRole, summaryDateStr) {
         const isAdmin = userRole === 'SUPER_ADMIN';
         
@@ -34,9 +34,9 @@ class FoodRequestService {
             $lt: targetEnd
         };
 
-        const requests = await FoodRequest.find(matchQuery).lean();
+        const requests = await StockRequest.find(matchQuery).lean();
         
-        // Fetch dependencies using Service Layer
+        // Fetch dependencies via Service Layer (architecture-compliant)
         const boms = await bomService.getBomsByEntity(entityId, isAdmin);
         const rawMaterials = await rawMaterialService.getRawMaterialsByEntity(entityId, isAdmin);
         const inventories = await inventoryService.getInventoriesByEntity(entityId, isAdmin);
@@ -87,7 +87,6 @@ class FoodRequestService {
                     });
                 } else {
                     // Fallback for Direct Menu Items that have no BOM.
-                    // By passing isBom: false, it will properly query Inventory for stock!
                     const fallbackId = item.menuId || item.bomId || item.materialId;
                     if (fallbackId) {
                         addDemand(parentLocationId, fallbackId.toString(), qty, approvedQty, false, item.materialName, item.unit || 'unit', 0);
@@ -169,4 +168,4 @@ class FoodRequestService {
     }
 }
 
-module.exports = new FoodRequestService();
+module.exports = new StockRequestService();

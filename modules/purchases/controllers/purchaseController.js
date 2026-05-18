@@ -80,24 +80,27 @@ exports.createPurchaseRequest = async (req, res) => {
             req.body.entity = req.user.entity;
         }
 
-        // Auto-approve if it comes from the Store Manager gap analysis with a destination location
+        // Auto-approve if it comes from the Stock Requests gap analysis with a destination location
         if (req.body.destinationLocation) {
             req.body.status = 'BILLED';
             
-            // Race Condition Mitigation: Prevent duplicate PRs for same items/location within last 1 hour
-            const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+            // Persistent Duplicate PR Guard (arch-compliant via service layer):
+            // Block if ANY pending Bill already covers the same items at the same location,
+            // regardless of who raised it (Store Manager or COO).
             const materialIds = req.body.items.map(i => i.item?.toString()).filter(Boolean);
-            
-            const existingPr = await PurchaseRequest.findOne({
-                destinationLocation: req.body.destinationLocation,
-                createdAt: { $gte: oneHourAgo },
-                'items.item': { $in: materialIds }
-            }).populate('requestedBy', 'name');
+            const entityId = req.user.role !== 'SUPER_ADMIN' ? req.user.entity : undefined;
 
-            if (existingPr) {
-                return res.status(400).json({ 
-                    success: false, 
-                    error: `A Purchase Request for one or more of these items was already raised recently by ${existingPr.requestedBy?.name || 'another user'}. Please refresh the Gap Analysis.` 
+            const duplicateBill = await purchaseService.findDuplicatePendingPR(
+                materialIds,
+                req.body.destinationLocation,
+                entityId
+            );
+
+            if (duplicateBill) {
+                const prCode = duplicateBill.purchaseRequest?.prCode || 'existing PR';
+                return res.status(409).json({
+                    success: false,
+                    error: `A pending Purchase Request (${prCode}) already exists for one or more of these items at this location. Please refresh the Gap Analysis to see current status.`
                 });
             }
         }

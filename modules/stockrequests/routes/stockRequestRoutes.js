@@ -1,14 +1,14 @@
 const express = require('express');
 const {
-    getFoodRequests,
-    createFoodRequest,
+    getStockRequests,
+    createStockRequest,
     approveRequest,
     rejectRequest,
     receiveRequest,
     seedSampleRequests,
     getDemandSummary,
     cooBulkAction
-} = require('../controllers/foodRequestController');
+} = require('../controllers/stockRequestController');
 const { protect } = require('../../../middleware/auth');
 
 const router = express.Router();
@@ -16,8 +16,8 @@ const router = express.Router();
 router.get('/demand-summary', protect, getDemandSummary);
 
 router.route('/')
-    .get(protect, getFoodRequests)
-    .post(protect, createFoodRequest);
+    .get(protect, getStockRequests)
+    .post(protect, createStockRequest);
 
 router.post('/seed-sample', protect, seedSampleRequests);
 
