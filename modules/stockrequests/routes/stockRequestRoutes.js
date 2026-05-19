@@ -7,7 +7,8 @@ const {
     receiveRequest,
     seedSampleRequests,
     getDemandSummary,
-    cooBulkAction
+    cooBulkAction,
+    updateItemQty
 } = require('../controllers/stockRequestController');
 const { protect } = require('../../../middleware/auth');
 
@@ -23,6 +24,7 @@ router.post('/seed-sample', protect, seedSampleRequests);
 
 router.put('/coo-bulk-action', protect, cooBulkAction);
 
+router.put('/:id/items', protect, updateItemQty);
 router.put('/:id/approve', protect, approveRequest);
 router.put('/:id/reject', protect, rejectRequest);
 router.put('/:id/receive', protect, receiveRequest);

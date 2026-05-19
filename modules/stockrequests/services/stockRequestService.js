@@ -139,7 +139,7 @@ class StockRequestService {
                 const gap = d.qty - currentStock;
                 const approvedGap = Math.max(0, d.approvedQty - currentStock);
                 
-                if (!d.isBom && gap > 0) {
+                if (!d.isBom && approvedGap > 0) {
                     totalOpenDemands++;
                 }
 
@@ -151,9 +151,13 @@ class StockRequestService {
                     unit: d.unit,
                     demand: d.qty,
                     approvedDemand: d.approvedQty,
+                    // Single display value: approved qty if COO has acted, else raw demand
+                    requestedStock: d.approvedQty > 0 ? d.approvedQty : d.qty,
                     stock: currentStock,
                     gap: gap,
                     approvedGap: approvedGap,
+                    // Gap relative to requestedStock — shown in the Gap column
+                    displayGap: d.approvedQty > 0 ? approvedGap : gap,
                     moq: d.moq || 0,
                     suggestedPrQty: Math.max(approvedGap, d.moq || 0)
                 });

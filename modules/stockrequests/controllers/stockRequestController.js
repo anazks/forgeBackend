@@ -3,15 +3,40 @@ const RawMaterial = require('../../rawmaterials/models/rawMaterialModel');
 const Bom = require('../../boms/models/bomModel');
 const { AppError } = require('../../../middleware/errorHandler');
 
+// @desc    COO edits a single item's requested quantity
+// @route   PUT /api/foodrequests/:id/items
+// @access  Private (COO, ADMIN, SUPER_ADMIN)
+exports.updateItemQty = async (req, res, next) => {
+    try {
+        const { itemId, requestedQty } = req.body;
+        if (!itemId || requestedQty === undefined) {
+            throw new AppError('itemId and requestedQty are required', 400);
+        }
+        const stockReq = await StockRequest.findById(req.params.id);
+        if (!stockReq) throw new AppError('Request not found', 404);
+
+        const item = stockReq.requestedItems.id(itemId);
+        if (!item) throw new AppError('Item not found in request', 404);
+
+        item.requestedQty = Math.max(0, Number(requestedQty));
+        await stockReq.save();
+
+        res.status(200).json({ success: true, data: stockReq });
+    } catch (error) {
+        next(error);
+    }
+};
+
 // @desc    Get all stock requests
 // @route   GET /api/foodrequests
 // @access  Private
 exports.getStockRequests = async (req, res, next) => {
     try {
         let query = {};
+        const REQUESTER_ROLES = ['CENTERS', 'RESTAURANT', 'AGGREGATE'];
         if (req.user.role === 'SUPER_ADMIN') {
             if (req.query.entity) query.entity = req.query.entity;
-        } else if (req.user.role === 'CENTERS') {
+        } else if (REQUESTER_ROLES.includes(req.user.role)) {
             query.centerId = req.user._id;
         } else {
             query.entity = req.user.entity;
@@ -124,111 +149,50 @@ exports.createStockRequest = async (req, res, next) => {
     }
 };
 
-// @desc    Approve a stock request (checks stock)
+// @desc    COO approves or rejects specific items in a stock request
 // @route   PUT /api/foodrequests/:id/approve
-// @access  Private (STORE/ADMIN/SUPER_ADMIN/COO)
+// @access  Private (COO, ADMIN, SUPER_ADMIN)
+// Body: { itemIds: string[], action: 'APPROVED' | 'REJECTED' }
 exports.approveRequest = async (req, res, next) => {
     try {
+        const { itemIds, action } = req.body;
+
+        if (!itemIds || !Array.isArray(itemIds) || !['APPROVED', 'REJECTED'].includes(action)) {
+            throw new AppError('itemIds (array) and action (APPROVED|REJECTED) are required', 400);
+        }
+
         const stockReq = await StockRequest.findById(req.params.id);
-        if (!stockReq) {
-            throw new AppError('Request not found', 404);
+        if (!stockReq) throw new AppError('Request not found', 404);
+
+        // Update approvalStatus for each targeted item
+        itemIds.forEach(itemId => {
+            const item = stockReq.requestedItems.id(itemId);
+            if (item) item.approvalStatus = action;
+        });
+
+        // Recalculate overall request status
+        const allItems = stockReq.requestedItems;
+        const allApproved  = allItems.every(i => i.approvalStatus === 'APPROVED');
+        const allRejected  = allItems.every(i => i.approvalStatus === 'REJECTED');
+        const anyPending   = allItems.some(i => i.approvalStatus === 'PENDING');
+
+        if (allRejected) {
+            stockReq.status = 'REJECTED';
+        } else if (allApproved && !anyPending) {
+            stockReq.status = 'APPROVED';
+        } else {
+            // Mix of approved/rejected/pending → PARTIAL
+            stockReq.status = 'PARTIAL';
         }
 
-        if (stockReq.status === 'APPROVED') {
-            throw new AppError('Request already approved', 400);
-        }
-
-        // Check stock for all items in request
-        let allSufficient = true;
-        const updatedItems = [];
-
-        for (const item of stockReq.requestedItems) {
-            let availableStock = null;
-            let isSufficient = true;
-
-            if (item.isMenuItem) {
-                // Find BOM for this item
-                const query = item.bomId ? { _id: item.bomId } : { menuItem: item.menuId };
-                const bom = await Bom.findOne(query);
-                
-                if (bom) {
-                    // Check all ingredients in BOM
-                    for (const ingredient of bom.items) {
-                        const material = await RawMaterial.findById(ingredient.materialId);
-                        const requiredQty = ingredient.quantity * item.requestedQty;
-                        
-                        if (!material || material.currentStock < requiredQty) {
-                            isSufficient = false;
-                            break;
-                        }
-                    }
-                    availableStock = isSufficient ? 1 : 0; // Binary flag for menu items
-                } else {
-                    isSufficient = false; 
-                }
-            } else if (item.material) {
-                const material = await RawMaterial.findById(item.material);
-                if (material) {
-                    availableStock = material.currentStock;
-                    isSufficient = material.currentStock >= item.requestedQty;
-                }
-            }
-
-            if (!isSufficient) allSufficient = false;
-
-            updatedItems.push({
-                ...item.toObject(),
-                availableStock,
-                isStockSufficient: isSufficient
-            });
-        }
-
-        // Determine status
-        const status = allSufficient ? 'APPROVED' : 'PARTIAL';
-
-        stockReq.requestedItems = updatedItems;
-        stockReq.status = status;
         stockReq.approvedBy = req.user._id;
         stockReq.approvedAt = new Date();
         await stockReq.save();
 
-        let activityLog = [];
-
-        // If fully approved, deduct stock
-        if (allSufficient) {
-            for (const item of stockReq.requestedItems) {
-                if (item.isMenuItem) {
-                    const query = item.bomId ? { _id: item.bomId } : { menuItem: item.menuId };
-                    const bom = await Bom.findOne(query);
-                    if (bom) {
-                        for (const ingredient of bom.items) {
-                            const requiredQty = ingredient.quantity * item.requestedQty;
-                            await RawMaterial.findByIdAndUpdate(ingredient.materialId, {
-                                $inc: { currentStock: -requiredQty }
-                            });
-                            activityLog.push(`${ingredient.itemName}: -${requiredQty.toFixed(2)} ${ingredient.unit}`);
-                        }
-                    }
-                } else if (item.material) {
-                    const mat = await RawMaterial.findByIdAndUpdate(item.material, {
-                        $inc: { currentStock: -item.requestedQty }
-                    });
-                    if (mat) {
-                        activityLog.push(`${mat.name}: -${item.requestedQty} ${mat.unit}`);
-                    }
-                }
-            }
-        }
-
-        const deductionDetails = activityLog.length > 0 ? ` Deducted: ${activityLog.join(', ')}` : '';
-
         res.status(200).json({
             success: true,
             data: stockReq,
-            stockStatus: allSufficient ? 'ALL_AVAILABLE' : 'INSUFFICIENT',
-            message: allSufficient
-                ? `Request approved.${deductionDetails}`
-                : 'Some items have insufficient stock. Request marked PARTIAL.'
+            message: `${itemIds.length} item(s) ${action.toLowerCase()}.`
         });
     } catch (error) {
         next(error);
