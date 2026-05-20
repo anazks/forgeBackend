@@ -113,14 +113,14 @@ exports.createPurchaseRequest = async (req, res) => {
                 item: i.item,
                 itemName: i.itemName,
                 quantity: i.requestedQty,
-                unitPrice: 0,
-                total: 0
+                unitPrice: i.unitPrice || 0,
+                total: i.requestedQty * (i.unitPrice || 0)
             }));
             await Bill.create({
                 purchaseRequest: pr._id,
                 vendor: pr.vendor || req.body.vendorId, // Use vendorId if passed directly
                 items: billItems,
-                totalAmount: 0,
+                totalAmount: billItems.reduce((acc, curr) => acc + curr.total, 0),
                 entity: pr.entity,
                 deliveryStatus: 'PENDING',
                 destinationLocation: req.body.destinationLocation
@@ -228,18 +228,48 @@ exports.getBills = async (req, res) => {
 exports.updateBill = async (req, res) => {
     try {
         const oldBill = await Bill.findById(req.params.id);
+        // Validate unitPrice if marking as DELIVERED
+        if (req.body.deliveryStatus === 'DELIVERED') {
+            const itemsToCheck = req.body.items || oldBill.items;
+            const invalidPriceItem = itemsToCheck.find(i => Number(i.unitPrice) <= 0);
+            if (invalidPriceItem) {
+                return res.status(400).json({ success: false, error: 'All received items must have a unit price greater than 0.' });
+            }
+        }
+
         const bill = await Bill.findByIdAndUpdate(req.params.id, req.body, { new: true });
         
-        // If delivery status just changed to DELIVERED, update stock in Inventory
-        if (req.body.deliveryStatus === 'DELIVERED' && oldBill.deliveryStatus !== 'DELIVERED') {
-            for (const item of bill.items) {
-                const qtyToAdd = item.receivedQty !== undefined ? item.receivedQty : item.quantity;
-                if (bill.destinationLocation && qtyToAdd > 0) {
-                    await Inventory.findOneAndUpdate(
-                        { materialId: item.item, locationId: bill.destinationLocation, entity: bill.entity },
-                        { $inc: { currentStock: qtyToAdd } },
-                        { upsert: true, new: true }
-                    );
+        if (req.body.deliveryStatus === 'DELIVERED') {
+            if (oldBill.deliveryStatus !== 'DELIVERED') {
+                // First time delivery
+                for (const item of bill.items) {
+                    const qtyToAdd = item.receivedQty !== undefined ? item.receivedQty : item.quantity;
+                    if (bill.destinationLocation && qtyToAdd > 0) {
+                        await Inventory.findOneAndUpdate(
+                            { materialId: item.item, locationId: bill.destinationLocation, entity: bill.entity },
+                            { $inc: { currentStock: qtyToAdd } },
+                            { upsert: true, new: true }
+                        );
+                    }
+                }
+            } else {
+                // Already delivered. We are editing it. Calculate difference.
+                for (const item of bill.items) {
+                    const newQty = item.receivedQty !== undefined ? item.receivedQty : item.quantity;
+                    
+                    // Find old quantity for this item
+                    const oldItem = oldBill.items.find(i => i.item.toString() === item.item.toString());
+                    const oldQty = oldItem ? (oldItem.receivedQty !== undefined ? oldItem.receivedQty : oldItem.quantity) : 0;
+                    
+                    const qtyDiff = newQty - oldQty;
+                    
+                    if (bill.destinationLocation && qtyDiff !== 0) {
+                        await Inventory.findOneAndUpdate(
+                            { materialId: item.item, locationId: bill.destinationLocation, entity: bill.entity },
+                            { $inc: { currentStock: qtyDiff } },
+                            { upsert: true, new: true }
+                        );
+                    }
                 }
             }
         }

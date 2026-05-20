@@ -1,6 +1,7 @@
 const StockRequest = require('../models/stockRequestModel');
 const RawMaterial = require('../../rawmaterials/models/rawMaterialModel');
 const Bom = require('../../boms/models/bomModel');
+const InternalOrder = require('../../production/models/internalOrderModel');
 const { AppError } = require('../../../middleware/errorHandler');
 
 // @desc    COO edits a single item's requested quantity
@@ -20,6 +21,7 @@ exports.updateItemQty = async (req, res, next) => {
 
         item.requestedQty = Math.max(0, Number(requestedQty));
         await stockReq.save();
+        await syncInternalOrdersForRequest(stockReq);
 
         res.status(200).json({ success: true, data: stockReq });
     } catch (error) {
@@ -189,6 +191,9 @@ exports.approveRequest = async (req, res, next) => {
         stockReq.approvedAt = new Date();
         await stockReq.save();
 
+        // Sync Internal Orders
+        await syncInternalOrdersForRequest(stockReq);
+
         res.status(200).json({
             success: true,
             data: stockReq,
@@ -252,23 +257,26 @@ exports.cooBulkAction = async (req, res, next) => {
             }
 
             // Check if all items are acted upon
-            const allActed = stockReq.requestedItems.every(i => i.approvalStatus !== 'PENDING');
-            if (allActed) {
-                const anyRejected = stockReq.requestedItems.some(i => i.approvalStatus === 'REJECTED');
-                const allRejected = stockReq.requestedItems.every(i => i.approvalStatus === 'REJECTED');
-                
-                if (allRejected) {
-                    stockReq.status = 'REJECTED';
-                } else if (anyRejected) {
-                    stockReq.status = 'PARTIAL';
+            const anyActed = stockReq.requestedItems.some(i => i.approvalStatus !== 'PENDING');
+            if (anyActed) {
+                const allActed = stockReq.requestedItems.every(i => i.approvalStatus !== 'PENDING');
+                if (allActed) {
+                    const allRejected = stockReq.requestedItems.every(i => i.approvalStatus === 'REJECTED');
+                    if (allRejected) {
+                        stockReq.status = 'REJECTED';
+                    } else {
+                        const anyRejected = stockReq.requestedItems.some(i => i.approvalStatus === 'REJECTED');
+                        stockReq.status = anyRejected ? 'PARTIAL' : 'APPROVED';
+                    }
                 } else {
-                    stockReq.status = 'APPROVED';
+                    stockReq.status = 'PARTIAL';
                 }
                 stockReq.approvedBy = req.user._id;
                 stockReq.approvedAt = new Date();
             }
 
             await stockReq.save();
+            await syncInternalOrdersForRequest(stockReq);
             updatedRequests.push(stockReq);
         }
 
@@ -279,48 +287,6 @@ exports.cooBulkAction = async (req, res, next) => {
 };
 
 // @desc    Seed sample stock requests (demo only)
-// @route   POST /api/foodrequests/seed-sample
-// @access  Private/Admin
-exports.seedSampleRequests = async (req, res, next) => {
-    try {
-        let query = {};
-        if (req.user.role !== 'SUPER_ADMIN') query.entity = req.user.entity;
-
-        const materials = await RawMaterial.find(query).limit(5);
-        if (materials.length === 0) {
-            throw new AppError('No raw materials found. Add items in Item Config first.', 400);
-        }
-
-        const centerNames = ['North Center', 'South Center', 'East Wing Center', 'West Branch'];
-        const sampleRequests = [];
-
-        for (let i = 0; i < 3; i++) {
-            const centerName = centerNames[i % centerNames.length];
-            const itemCount = Math.min(materials.length, Math.floor(Math.random() * 3) + 1);
-            const requestedItems = materials.slice(0, itemCount).map(m => ({
-                material: m._id,
-                materialName: m.name,
-                simpleCode: m.simpleCode,
-                requestedQty: Math.floor(Math.random() * 10) + 1,
-                unit: m.unit === 'custom' ? (m.customUnit || 'unit') : m.unit
-            }));
-
-            sampleRequests.push({
-                centerName,
-                entity: req.user.role !== 'SUPER_ADMIN' ? req.user.entity : (req.body.entity || null),
-                requestedItems,
-                status: 'PENDING',
-                notes: `Sample request from ${centerName} — Demo Data`
-            });
-        }
-
-        const created = await StockRequest.insertMany(sampleRequests);
-        res.status(201).json({ success: true, count: created.length, data: created });
-    } catch (error) {
-        next(error);
-    }
-};
-
 // @desc    Get total raw material demand across all pending requests
 // @route   GET /api/foodrequests/demand-summary
 // @access  Private (STORE/ADMIN/SUPER_ADMIN/COO)
@@ -402,3 +368,76 @@ exports.receiveRequest = async (req, res, next) => {
         next(error);
     }
 };
+
+async function syncInternalOrdersForRequest(stockReq) {
+    const internalOrdersMap = {};
+
+    for (const item of stockReq.requestedItems) {
+        if (item.approvalStatus === 'APPROVED' && item.isMenuItem) {
+            const query = item.bomId ? { _id: item.bomId } : { menuItem: item.menuId };
+            const bom = await Bom.findOne(query);
+            if (bom && bom.preparationLocation && bom.preparationLocation.toString() !== stockReq.centerId.toString()) {
+                const sourceLocId = bom.preparationLocation.toString();
+                if (!internalOrdersMap[sourceLocId]) {
+                    internalOrdersMap[sourceLocId] = [];
+                }
+                internalOrdersMap[sourceLocId].push({
+                    bomId: bom._id,
+                    menuId: item.menuId,
+                    itemName: item.materialName,
+                    requestedQty: item.requestedQty,
+                    unit: item.unit
+                });
+            }
+        }
+    }
+
+    for (const sourceLocId in internalOrdersMap) {
+        const newItemsList = internalOrdersMap[sourceLocId];
+        let existingOrder = await InternalOrder.findOne({
+            foodRequestId: stockReq._id,
+            sourceLocation: sourceLocId
+        });
+
+        if (existingOrder) {
+            const updatedItems = [];
+            newItemsList.forEach(newItem => {
+                const existingItem = existingOrder.items.find(i => 
+                    (newItem.bomId && i.bomId?.toString() === newItem.bomId.toString()) || 
+                    (newItem.menuId && i.menuId?.toString() === newItem.menuId.toString()) ||
+                    (i.itemName === newItem.itemName)
+                );
+                if (existingItem) {
+                    existingItem.requestedQty = newItem.requestedQty;
+                    updatedItems.push(existingItem);
+                } else {
+                    updatedItems.push(newItem);
+                }
+            });
+            existingOrder.items = updatedItems;
+            if (existingOrder.items.length === 0) {
+                await InternalOrder.findByIdAndDelete(existingOrder._id);
+            } else {
+                await existingOrder.save();
+            }
+        } else {
+            if (newItemsList.length > 0) {
+                await InternalOrder.create({
+                    sourceLocation: sourceLocId,
+                    destinationLocation: stockReq.centerId,
+                    entity: stockReq.entity,
+                    foodRequestId: stockReq._id,
+                    items: newItemsList
+                });
+            }
+        }
+    }
+
+    const existingOrders = await InternalOrder.find({ foodRequestId: stockReq._id });
+    for (const order of existingOrders) {
+        const sourceLocId = order.sourceLocation.toString();
+        if (!internalOrdersMap[sourceLocId]) {
+            await InternalOrder.findByIdAndDelete(order._id);
+        }
+    }
+}

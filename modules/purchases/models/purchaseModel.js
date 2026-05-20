@@ -55,13 +55,38 @@ const PurchaseSchema = new mongoose.Schema({
     }
 });
 
+const CounterSchema = new mongoose.Schema({
+    _id: { type: String, required: true },
+    seq: { type: Number, default: 0 }
+});
+const Counter = mongoose.models.Counter || mongoose.model('Counter', CounterSchema);
+
 // Auto-calculate total cost and generate code
 PurchaseSchema.pre('save', async function() {
     this.totalCost = (this.unitPrice * this.quantity) - this.discount;
     
     if (!this.purchaseCode) {
-        const count = await this.model('Purchase').countDocuments();
-        this.purchaseCode = `PUR-${(count + 1).toString().padStart(4, '0')}`;
+        const counterExists = await Counter.findById('purchaseCode');
+        if (!counterExists) {
+            const highestDoc = await this.model('Purchase').findOne({}, { purchaseCode: 1 }).sort({ purchaseCode: -1 }).lean();
+            let startSeq = 0;
+            if (highestDoc && highestDoc.purchaseCode) {
+                const match = highestDoc.purchaseCode.match(/\d+/);
+                startSeq = match ? parseInt(match[0], 10) : 0;
+            }
+            try {
+                await Counter.create({ _id: 'purchaseCode', seq: startSeq });
+            } catch (e) {
+                // Ignore duplicate key error if another request created it concurrently
+            }
+        }
+
+        const counter = await Counter.findByIdAndUpdate(
+            'purchaseCode',
+            { $inc: { seq: 1 } },
+            { returnDocument: 'after', upsert: true }
+        );
+        this.purchaseCode = `PUR-${counter.seq.toString().padStart(4, '0')}`;
     }
 });
 

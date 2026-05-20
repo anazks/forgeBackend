@@ -5,7 +5,6 @@ const {
     approveRequest,
     rejectRequest,
     receiveRequest,
-    seedSampleRequests,
     getDemandSummary,
     cooBulkAction,
     updateItemQty
@@ -20,7 +19,7 @@ router.route('/')
     .get(protect, getStockRequests)
     .post(protect, createStockRequest);
 
-router.post('/seed-sample', protect, seedSampleRequests);
+
 
 router.put('/coo-bulk-action', protect, cooBulkAction);
 

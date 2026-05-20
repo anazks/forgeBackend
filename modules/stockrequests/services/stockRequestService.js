@@ -105,6 +105,7 @@ class StockRequestService {
         requests.forEach(req => {
             const reqCenterId = req.centerId?.toString();
             req.requestedItems.forEach(item => {
+                if (item.approvalStatus === 'REJECTED') return;
                 const qty = item.requestedQty;
                 const approvedQty = item.approvalStatus === 'APPROVED' ? item.requestedQty : 0;
                 processItem(item, qty, approvedQty, reqCenterId);
