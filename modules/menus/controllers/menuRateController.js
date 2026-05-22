@@ -42,14 +42,14 @@ exports.updateMenuRate = async (req, res, next) => {
         }
 
         // Role-based logic
-        if (req.user.role === 'CENTERS') {
-            // Centers can only update their own rates
+        if (req.user.role === 'CENTERS' || req.user.role === 'RESTAURANT') {
+            // Centers and Restaurants can only update their own rates
             if (req.user._id.toString() !== centerId.toString()) {
-                return res.status(403).json({ success: false, error: 'Not authorized to update rates for another center' });
+                return res.status(403).json({ success: false, error: 'Not authorized to update rates for another location' });
             }
-            // Centers can only update centerRate
+            // Centers and Restaurants can only update centerRate
             if (rate !== undefined) {
-                return res.status(403).json({ success: false, error: 'Centers cannot update admin rate' });
+                return res.status(403).json({ success: false, error: 'Locations cannot update admin rate' });
             }
         }
 

@@ -9,14 +9,22 @@ exports.getInternalOrders = async (req, res, next) => {
             query.entity = req.user.entity;
         }
 
-        // If location is provided, filter by it (Admin/COO dropdown)
-        // If not, default to the user's location (Center/Kitchen/Aggregate)
-        const targetLocation = req.query.locationId || req.user._id;
-        
-        if (req.query.type === 'send') {
-            query.sourceLocation = targetLocation;
-        } else if (req.query.type === 'receive') {
-            query.destinationLocation = targetLocation;
+        const userRole = req.user.role;
+        const isAdmin = userRole === 'SUPER_ADMIN' || userRole === 'ADMIN' || userRole === 'COO';
+
+        let targetLocation = req.query.locationId;
+        if (!targetLocation || targetLocation === 'ALL') {
+            if (!isAdmin) {
+                targetLocation = req.user._id;
+            }
+        }
+
+        if (targetLocation && targetLocation !== 'ALL') {
+            if (req.query.type === 'send') {
+                query.sourceLocation = targetLocation;
+            } else if (req.query.type === 'receive') {
+                query.destinationLocation = targetLocation;
+            }
         }
 
         const orders = await productionService.getInternalOrders(query);

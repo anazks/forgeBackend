@@ -23,6 +23,8 @@ exports.getExpenseCategories = async (req, res) => {
                 query.$or.push({ applicableLocations: { $in: ['ALL', 'Kitchen'] } });
             } else if (req.user.role === 'CENTERS') {
                 query.$or.push({ applicableLocations: { $in: ['ALL', 'Center'] } });
+            } else if (req.user.role === 'RESTAURANT') {
+                query.$or.push({ applicableLocations: { $in: ['ALL', 'Kitchen', 'Center', 'Restaurant'] } });
             }
         } else if (req.query.entity) {
             query.entity = req.query.entity;

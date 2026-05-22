@@ -44,6 +44,26 @@ exports.getMyCenters = async (req, res, next) => {
     }
 };
 
+// @desc    Get my restaurants
+// @route   GET /api/users/my-restaurants
+// @access  Private
+exports.getMyRestaurants = async (req, res, next) => {
+    try {
+        let query = { role: 'RESTAURANT' };
+        if (req.user.role === 'SUPER_ADMIN') {
+            if (req.query.entity) {
+                query.entity = req.query.entity;
+            }
+        } else {
+            query.entity = req.user.entity;
+        }
+        const restaurants = await User.find(query).populate('entity');
+        res.status(200).json({ success: true, count: restaurants.length, data: restaurants });
+    } catch (error) {
+        res.status(400).json({ success: false, error: error.message });
+    }
+};
+
 // @desc    Get my kitchens
 // @route   GET /api/users/my-kitchens
 // @access  Private
@@ -129,7 +149,7 @@ exports.getMyAggregates = async (req, res, next) => {
 // @access  Private
 exports.getMyLocations = async (req, res, next) => {
     try {
-        let query = { role: { $in: ['ADMIN', 'KITCHEN', 'CENTERS', 'STORE', 'RESORT', 'AGGREGATE'] } };
+        let query = { role: { $in: ['ADMIN', 'KITCHEN', 'CENTERS', 'STORE', 'RESORT', 'AGGREGATE', 'RESTAURANT'] } };
         if (req.user.role === 'SUPER_ADMIN') {
             if (req.query.entity) {
                 query.entity = req.query.entity;

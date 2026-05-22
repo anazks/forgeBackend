@@ -13,8 +13,8 @@ router.get('/', protect, async (req, res) => {
             query.entity = req.user.entity;
         }
 
-        // If it's a Center or Kitchen, only show their own stock
-        if (req.user.role === 'CENTERS' || req.user.role === 'KITCHEN') {
+        // If it's a Center, Kitchen, or Restaurant, only show their own stock
+        if (req.user.role === 'CENTERS' || req.user.role === 'KITCHEN' || req.user.role === 'RESTAURANT') {
             query.locationId = req.user._id;
         } else if (req.query.locationId) {
             query.locationId = req.query.locationId;

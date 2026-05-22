@@ -141,7 +141,7 @@ exports.getPurchaseRequests = async (req, res) => {
         if (req.user.role !== 'SUPER_ADMIN') {
             query.entity = req.user.entity;
         }
-        if (req.user.role === 'CENTERS' || req.user.role === 'KITCHEN') {
+        if (req.user.role === 'CENTERS' || req.user.role === 'KITCHEN' || req.user.role === 'RESTAURANT') {
             query.destinationLocation = req.user._id;
         }
         const requests = await PurchaseRequest.find(query)
@@ -209,7 +209,7 @@ exports.getBills = async (req, res) => {
         if (req.user.role !== 'SUPER_ADMIN') {
             query.entity = req.user.entity;
         }
-        if (req.user.role === 'CENTERS' || req.user.role === 'KITCHEN') {
+        if (req.user.role === 'CENTERS' || req.user.role === 'KITCHEN' || req.user.role === 'RESTAURANT') {
             query.destinationLocation = req.user._id;
         }
         const bills = await Bill.find(query)

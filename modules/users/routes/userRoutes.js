@@ -1,5 +1,5 @@
 const express = require('express');
-const { getUsers, getMyLocations, getMyCenters, getMyKitchens, getMyStores, getMyResorts, getMyAggregates, getMe, register, login, createUser, createAdmin, toggleUserStatus, updateUser, deleteUser } = require('../controllers/userController');
+const { getUsers, getMyLocations, getMyCenters, getMyKitchens, getMyStores, getMyResorts, getMyAggregates, getMyRestaurants, getMe, register, login, createUser, createAdmin, toggleUserStatus, updateUser, deleteUser } = require('../controllers/userController');
 
 const { protect, authorize } = require('../../../middleware/auth');
 
@@ -18,6 +18,7 @@ router.get('/my-kitchens', protect, authorize('SUPER_ADMIN', 'ADMIN'), getMyKitc
 router.get('/my-stores', protect, authorize('SUPER_ADMIN', 'ADMIN'), getMyStores);
 router.get('/my-resorts', protect, authorize('SUPER_ADMIN', 'ADMIN'), getMyResorts);
 router.get('/my-aggregates', protect, authorize('SUPER_ADMIN', 'ADMIN'), getMyAggregates);
+router.get('/my-restaurants', protect, authorize('SUPER_ADMIN', 'ADMIN'), getMyRestaurants);
 router.post('/create-admin', protect, authorize('SUPER_ADMIN'), createAdmin);
 router.put('/:id/toggle-status', protect, authorize('SUPER_ADMIN'), toggleUserStatus);
 

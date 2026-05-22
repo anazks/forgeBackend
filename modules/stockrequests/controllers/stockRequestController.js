@@ -3,6 +3,7 @@ const RawMaterial = require('../../rawmaterials/models/rawMaterialModel');
 const Bom = require('../../boms/models/bomModel');
 const InternalOrder = require('../../production/models/internalOrderModel');
 const { AppError } = require('../../../middleware/errorHandler');
+const userService = require('../../users/services/userService');
 
 // @desc    COO edits a single item's requested quantity
 // @route   PUT /api/foodrequests/:id/items
@@ -376,18 +377,24 @@ async function syncInternalOrdersForRequest(stockReq) {
         if (item.approvalStatus === 'APPROVED' && item.isMenuItem) {
             const query = item.bomId ? { _id: item.bomId } : { menuItem: item.menuId };
             const bom = await Bom.findOne(query);
-            if (bom && bom.preparationLocation && bom.preparationLocation.toString() !== stockReq.centerId.toString()) {
-                const sourceLocId = bom.preparationLocation.toString();
-                if (!internalOrdersMap[sourceLocId]) {
-                    internalOrdersMap[sourceLocId] = [];
+            if (bom && bom.preparationLocation) {
+                const prepLocId = bom.preparationLocation.toString();
+                const centerId = stockReq.centerId.toString();
+                const isPrepLocRestaurant = await userService.isRestaurant(prepLocId);
+                
+                if (prepLocId !== centerId || isPrepLocRestaurant) {
+                    const sourceLocId = prepLocId;
+                    if (!internalOrdersMap[sourceLocId]) {
+                        internalOrdersMap[sourceLocId] = [];
+                    }
+                    internalOrdersMap[sourceLocId].push({
+                        bomId: bom._id,
+                        menuId: item.menuId,
+                        itemName: item.materialName,
+                        requestedQty: item.requestedQty,
+                        unit: item.unit
+                    });
                 }
-                internalOrdersMap[sourceLocId].push({
-                    bomId: bom._id,
-                    menuId: item.menuId,
-                    itemName: item.materialName,
-                    requestedQty: item.requestedQty,
-                    unit: item.unit
-                });
             }
         }
     }
