@@ -190,7 +190,8 @@ exports.approvePurchaseRequest = async (req, res) => {
             items: billItems,
             totalAmount,
             entity: pr.entity,
-            deliveryStatus: 'PENDING'
+            deliveryStatus: 'PENDING',
+            destinationLocation: pr.destinationLocation
         });
 
         res.status(200).json({ success: true, data: { pr, bill } });

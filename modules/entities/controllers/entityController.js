@@ -127,7 +127,7 @@ exports.createEntityWithAdmin = async (req, res, next) => {
 // @access  Private/SuperAdmin
 exports.addAdminToEntity = async (req, res, next) => {
     try {
-        const { name, email, password, mobileNo, area, duration, role, commissionRate, customLicenseDate } = req.body;
+        const { name, email, password, mobileNo, area, duration, role, customLicenseDate } = req.body;
         const entityId = req.params.id;
 
         const entity = await Entity.findById(entityId);
@@ -157,7 +157,6 @@ exports.addAdminToEntity = async (req, res, next) => {
             mobileNo,
             area,
             role: userRole,
-            commissionRate: userRole === 'AGGREGATE' ? commissionRate : 0,
             licenseNumber,
             licenseExpires,
             entity: entity._id

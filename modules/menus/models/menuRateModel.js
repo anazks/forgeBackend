@@ -14,7 +14,7 @@ const MenuRateSchema = new mongoose.Schema({
     center: {
         type: mongoose.Schema.ObjectId,
         ref: 'User',
-        required: true
+        required: false
     },
     rate: {
         type: Number,
@@ -35,8 +35,20 @@ const MenuRateSchema = new mongoose.Schema({
     }
 });
 
-// Unique rate per menu item per center OR per bom per center
-MenuRateSchema.index({ menu: 1, center: 1 }, { unique: true, sparse: true });
-MenuRateSchema.index({ bom: 1, center: 1 }, { unique: true, sparse: true });
+// Unique rate per menu item per center OR per bom per center (partial indexes to allow null values)
+MenuRateSchema.index(
+    { menu: 1, center: 1 }, 
+    { 
+        unique: true, 
+        partialFilterExpression: { menu: { $exists: true } } 
+    }
+);
+MenuRateSchema.index(
+    { bom: 1, center: 1 }, 
+    { 
+        unique: true, 
+        partialFilterExpression: { bom: { $exists: true } } 
+    }
+);
 
 module.exports = mongoose.model('MenuRate', MenuRateSchema);

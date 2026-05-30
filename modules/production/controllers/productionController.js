@@ -27,6 +27,10 @@ exports.getInternalOrders = async (req, res, next) => {
             }
         }
 
+        if (req.query.type === 'receive') {
+            query.status = { $ne: 'PENDING' };
+        }
+
         const orders = await productionService.getInternalOrders(query);
 
         res.status(200).json({ success: true, count: orders.length, data: orders });

@@ -52,50 +52,6 @@ exports.getStockRequests = async (req, res, next) => {
             .sort({ createdAt: -1 })
             .lean();
 
-        const MenuRate = require('../../menus/models/menuRateModel');
-        const centerIds = [...new Set(requests.map(r => r.centerId?.toString()).filter(Boolean))];
-        
-        if (centerIds.length > 0) {
-            const menuRates = await MenuRate.find({ center: { $in: centerIds } });
-            const rateMap = {};
-            const centerRateMap = {};
-            menuRates.forEach(mr => {
-                const centerKey = mr.center.toString();
-                if (mr.bom) {
-                    const bomKey = `${centerKey}_${mr.bom.toString()}`;
-                    rateMap[bomKey] = mr.rate;
-                    centerRateMap[bomKey] = mr.centerRate || mr.rate;
-                }
-                if (mr.menu) {
-                    const menuKey = `${centerKey}_${mr.menu.toString()}`;
-                    rateMap[menuKey] = mr.rate;
-                    centerRateMap[menuKey] = mr.centerRate || mr.rate;
-                }
-            });
-
-            for (const req of requests) {
-                if (!req.centerId) continue;
-                const centerKey = req.centerId.toString();
-                for (const item of req.requestedItems) {
-                    const bomId = item.bomId?._id?.toString() || item.bomId?.toString();
-                    const menuId = item.menuId?._id?.toString() || item.menuId?.toString();
-                    
-                    let assigned = null;
-                    let selling = null;
-                    if (bomId && rateMap[`${centerKey}_${bomId}`] !== undefined) {
-                        assigned = rateMap[`${centerKey}_${bomId}`];
-                        selling = centerRateMap[`${centerKey}_${bomId}`];
-                    } else if (menuId && rateMap[`${centerKey}_${menuId}`] !== undefined) {
-                        assigned = rateMap[`${centerKey}_${menuId}`];
-                        selling = centerRateMap[`${centerKey}_${menuId}`];
-                    }
-                    
-                    item.assignedRate = assigned !== null ? assigned : (item.bomId?.kitchenPrice || 0);
-                    item.sellingRate = selling !== null ? selling : item.assignedRate;
-                }
-            }
-        }
-
         res.status(200).json({ success: true, count: requests.length, data: requests });
     } catch (error) {
         next(error);
@@ -371,39 +327,112 @@ exports.receiveRequest = async (req, res, next) => {
 };
 
 async function syncInternalOrdersForRequest(stockReq) {
-    const internalOrdersMap = {};
+    const internalOrdersMap = {}; // Key: "sourceLocId->destLocId"
 
-    for (const item of stockReq.requestedItems) {
-        if (item.approvalStatus === 'APPROVED' && item.isMenuItem) {
-            const query = item.bomId ? { _id: item.bomId } : { menuItem: item.menuId };
-            const bom = await Bom.findOne(query);
-            if (bom && bom.preparationLocation) {
-                const prepLocId = bom.preparationLocation.toString();
-                const centerId = stockReq.centerId.toString();
-                const isPrepLocRestaurant = await userService.isRestaurant(prepLocId);
-                
-                if (prepLocId !== centerId || isPrepLocRestaurant) {
-                    const sourceLocId = prepLocId;
-                    if (!internalOrdersMap[sourceLocId]) {
-                        internalOrdersMap[sourceLocId] = [];
+    async function explodeAndMap(bomId, menuId, itemName, qty, unit, currentDestinationLocId) {
+        const bom = await Bom.findById(bomId);
+        if (!bom) return;
+
+        const prepLocId = bom.preparationLocation?.toString() || currentDestinationLocId;
+
+        // If prepLoc is different from currentDestinationLocId OR it matches the requesting center (self-preparing),
+        // we create an internal order from prepLocId to currentDestinationLocId.
+        if (prepLocId !== currentDestinationLocId || prepLocId === stockReq.centerId.toString()) {
+            const key = `${prepLocId}->${currentDestinationLocId}`;
+            if (!internalOrdersMap[key]) {
+                internalOrdersMap[key] = [];
+            }
+            const existing = internalOrdersMap[key].find(i => 
+                (bomId && i.bomId?.toString() === bomId.toString()) || 
+                (menuId && i.menuId?.toString() === menuId.toString()) ||
+                (i.itemName === itemName)
+            );
+            if (existing) {
+                existing.requestedQty += qty;
+            } else {
+                internalOrdersMap[key].push({
+                    bomId: bom._id,
+                    menuId: menuId,
+                    itemName: itemName,
+                    requestedQty: qty,
+                    unit: unit
+                });
+            }
+            
+            // Recurse for nested BOM Item ingredients using prepLocId as destination
+            for (const ing of bom.items || []) {
+                if (ing.type === 'BOM Item') {
+                    const ingQty = ing.quantity * qty;
+                    const subBom = await Bom.findOne({
+                        $or: [
+                            { _id: ing.materialId },
+                            { menuItem: ing.materialId }
+                        ]
+                    }).lean();
+                    if (subBom) {
+                        await explodeAndMap(
+                            subBom._id,
+                            subBom.menuItem,
+                            subBom.dishName,
+                            ingQty,
+                            subBom.unit || 'pcs',
+                            prepLocId
+                        );
                     }
-                    internalOrdersMap[sourceLocId].push({
-                        bomId: bom._id,
-                        menuId: item.menuId,
-                        itemName: item.materialName,
-                        requestedQty: item.requestedQty,
-                        unit: item.unit
-                    });
+                }
+            }
+        } else {
+            // Self-preparing but not the requesting center (so it is a sub-assembly prepared in-house by prepLocId)
+            // Recurse for nested BOM Item ingredients using prepLocId as destination
+            for (const ing of bom.items || []) {
+                if (ing.type === 'BOM Item') {
+                    const ingQty = ing.quantity * qty;
+                    const subBom = await Bom.findOne({
+                        $or: [
+                            { _id: ing.materialId },
+                            { menuItem: ing.materialId }
+                        ]
+                    }).lean();
+                    if (subBom) {
+                        await explodeAndMap(
+                            subBom._id,
+                            subBom.menuItem,
+                            subBom.dishName,
+                            ingQty,
+                            subBom.unit || 'pcs',
+                            prepLocId
+                        );
+                    }
                 }
             }
         }
     }
 
-    for (const sourceLocId in internalOrdersMap) {
-        const newItemsList = internalOrdersMap[sourceLocId];
+    for (const item of stockReq.requestedItems) {
+        if (item.approvalStatus === 'APPROVED' && (item.isMenuItem || item.bomId || item.menuId)) {
+            const query = item.bomId ? { _id: item.bomId } : { menuItem: item.menuId };
+            const bom = await Bom.findOne(query);
+            if (bom) {
+                await explodeAndMap(
+                    bom._id,
+                    item.menuId || bom.menuItem,
+                    item.materialName,
+                    item.requestedQty,
+                    item.unit,
+                    stockReq.centerId.toString()
+                );
+            }
+        }
+    }
+
+    for (const key in internalOrdersMap) {
+        const [sourceLocId, destLocId] = key.split('->');
+        const newItemsList = internalOrdersMap[key];
+        
         let existingOrder = await InternalOrder.findOne({
             foodRequestId: stockReq._id,
-            sourceLocation: sourceLocId
+            sourceLocation: sourceLocId,
+            destinationLocation: destLocId
         });
 
         if (existingOrder) {
@@ -431,7 +460,7 @@ async function syncInternalOrdersForRequest(stockReq) {
             if (newItemsList.length > 0) {
                 await InternalOrder.create({
                     sourceLocation: sourceLocId,
-                    destinationLocation: stockReq.centerId,
+                    destinationLocation: destLocId,
                     entity: stockReq.entity,
                     foodRequestId: stockReq._id,
                     items: newItemsList
@@ -443,8 +472,28 @@ async function syncInternalOrdersForRequest(stockReq) {
     const existingOrders = await InternalOrder.find({ foodRequestId: stockReq._id });
     for (const order of existingOrders) {
         const sourceLocId = order.sourceLocation.toString();
-        if (!internalOrdersMap[sourceLocId]) {
+        const destLocId = order.destinationLocation.toString();
+        const key = `${sourceLocId}->${destLocId}`;
+        if (!internalOrdersMap[key]) {
             await InternalOrder.findByIdAndDelete(order._id);
         }
+    }
+
+    // Automatically initialize DailyRevenue logs for involved locations on delivery date
+    try {
+        const revenueService = require('../../revenue/services/revenueService');
+        const deliveryDateStr = stockReq.deliveryDate.toISOString();
+        const entityId = stockReq.entity.toString();
+
+        // 1. Destination location (requesting center)
+        await revenueService.initializeDailyRevenue(stockReq.centerId.toString(), deliveryDateStr, entityId);
+
+        // 2. Source locations (preparation locations)
+        for (const key in internalOrdersMap) {
+            const [sourceLocId] = key.split('->');
+            await revenueService.initializeDailyRevenue(sourceLocId, deliveryDateStr, entityId);
+        }
+    } catch (e) {
+        console.error('Failed to initialize daily revenue:', e.message);
     }
 }

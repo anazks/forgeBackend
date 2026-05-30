@@ -18,7 +18,7 @@ const UserSchema = new mongoose.Schema({
     },
     role: {
         type: String,
-        enum: ['SUPER_ADMIN', 'ADMIN', 'KITCHEN', 'CENTERS', 'COO', 'RESORT', 'AGGREGATE', 'STORE', 'PARTNER', 'RESTAURANT'],
+        enum: ['SUPER_ADMIN', 'ADMIN', 'KITCHEN', 'CENTERS', 'COO', 'RESORT', 'AGGREGATE', 'STORE', 'PARTNER', 'RESTAURANT', 'FINANCE'],
         default: 'ADMIN',
     },
     mobileNo: {
@@ -37,10 +37,6 @@ const UserSchema = new mongoose.Schema({
     licenseExpires: {
         type: Date
     },
-    commissionRate: {
-        type: Number,
-        default: 0
-    },
     isActive: {
         type: Boolean,
         default: true
@@ -58,6 +54,14 @@ const UserSchema = new mongoose.Schema({
     entity: {
         type: mongoose.Schema.ObjectId,
         ref: 'Entity'
+    },
+    onlineSalesEnabled: {
+        type: Boolean,
+        default: false
+    },
+    aggregatorPercentage: {
+        type: Number,
+        default: 0
     }
 });
 

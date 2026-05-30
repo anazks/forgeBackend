@@ -38,21 +38,35 @@ router.get('/', protect, async (req, res) => {
         const menuMap = {};
         menus.forEach(m => menuMap[m._id.toString()] = m);
 
-        // Stitch back
+        // Fetch Boms that are directly referenced
+        const Bom = require('../../boms/models/bomModel');
+        const bomsDirect = await Bom.find({ _id: { $in: materialIds } }, 'dishName unit').lean();
+        const bomMap = {};
+        bomsDirect.forEach(b => bomMap[b._id.toString()] = { _id: b._id, name: b.dishName, unit: b.unit, category: 'BOM' });
+
+        // Fetch Boms that are linked to these menu items (to filter out BOM menu items)
+        const bomsLinked = await Bom.find({ menuItem: { $in: materialIds } }, 'menuItem').lean();
+        const bomMenuIds = new Set(bomsLinked.map(b => b.menuItem.toString()));
+
+        // Stitch back and filter out BOM items
+        const filteredInventory = [];
         inventory.forEach(item => {
             const matId = item.materialId?.toString();
             if (matId) {
                 if (rawMap[matId]) {
                     item.materialId = rawMap[matId];
+                    filteredInventory.push(item);
                 } else if (menuMap[matId]) {
-                    item.materialId = menuMap[matId];
-                } else {
-                    item.materialId = null;
+                    if (!bomMenuIds.has(matId)) {
+                        item.materialId = menuMap[matId];
+                        filteredInventory.push(item);
+                    }
                 }
+                // BOM items directly referenced in bomMap are skipped
             }
         });
 
-        res.status(200).json({ success: true, count: inventory.length, data: inventory });
+        res.status(200).json({ success: true, count: filteredInventory.length, data: filteredInventory });
     } catch (error) {
         res.status(400).json({ success: false, error: error.message });
     }
@@ -76,7 +90,13 @@ router.put('/:id', protect, async (req, res) => {
             } else {
                 const Menu = require('../../menus/models/menuModel');
                 const menu = await Menu.findById(matId, 'name unit category').lean();
-                item.materialId = menu || null;
+                if (menu) {
+                    item.materialId = menu;
+                } else {
+                    const Bom = require('../../boms/models/bomModel');
+                    const bom = await Bom.findById(matId, 'dishName unit').lean();
+                    item.materialId = bom ? { _id: bom._id, name: bom.dishName, unit: bom.unit, category: 'BOM' } : null;
+                }
             }
         }
 

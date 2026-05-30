@@ -201,13 +201,23 @@ exports.login = async (req, res, next) => {
 // @access  Private/SuperAdmin
 exports.createUser = async (req, res, next) => {
     try {
-        const { name, email, password, role, mobileNo, area, duration, entityId, customLicenseDate } = req.body;
+        const { name, email, password, role, mobileNo, area, duration, entityId, customLicenseDate, onlineSalesEnabled, aggregatorPercentage } = req.body;
 
         if (!role) {
             return res.status(400).json({ success: false, error: 'Please provide a role' });
         }
 
-        let userData = { name, email, password, mobileNo, area, role, entity: entityId };
+        let userData = { 
+            name, 
+            email, 
+            password, 
+            mobileNo, 
+            area, 
+            role, 
+            entity: entityId,
+            onlineSalesEnabled: onlineSalesEnabled === true || onlineSalesEnabled === 'true',
+            aggregatorPercentage: Number(aggregatorPercentage) || 0
+        };
 
         if (role === 'ADMIN') {
             if (!duration && !customLicenseDate) {

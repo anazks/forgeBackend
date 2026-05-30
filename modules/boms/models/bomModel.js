@@ -61,6 +61,10 @@ const BomSchema = new mongoose.Schema({
         ref: 'User',
         required: false
     },
+    isSoldB2C: {
+        type: Boolean,
+        default: true
+    },
     items: [BomItemSchema],
     entity: {
         type: mongoose.Schema.ObjectId,

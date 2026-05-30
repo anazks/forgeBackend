@@ -34,10 +34,15 @@ class ProductionService {
                     if (bom && bom.items) {
                         for (const bomItem of bom.items) {
                             if (bomItem.materialId) {
+                                if (bomItem.type === 'BOM Item') {
+                                    // BOM items are not tracked in inventory; skip sub-assembly stock deductions
+                                    continue;
+                                }
                                 const requiredQty = bomItem.quantity * qtyToDispatch;
+                                let deductId = bomItem.materialId;
                                 await Inventory.findOneAndUpdate(
                                     { 
-                                        materialId: bomItem.materialId, 
+                                        materialId: deductId, 
                                         locationId: order.sourceLocation,
                                         entity: order.entity
                                     },
@@ -94,6 +99,31 @@ class ProductionService {
                     }
                 }
                 anyReceived = true;
+
+                // BOM items do not come up in inventory (only daily consumption).
+                // We check if this item is a BOM item (has bomId or is linked to a Bom).
+                let isBomItem = !!orderItem.bomId;
+                if (!isBomItem && orderItem.menuId) {
+                    const bom = await Bom.findOne({ menuItem: orderItem.menuId }).lean();
+                    if (bom) {
+                        isBomItem = true;
+                    }
+                }
+
+                if (!isBomItem) {
+                    let targetId = orderItem.menuId || orderItem.bomId;
+                    if (targetId) {
+                        await Inventory.findOneAndUpdate(
+                            {
+                                materialId: targetId,
+                                locationId: order.destinationLocation,
+                                entity: order.entity
+                            },
+                            { $inc: { currentStock: qtyToReceive } },
+                            { upsert: true, new: true, runValidators: false }
+                        );
+                    }
+                }
             }
 
             if (orderItem.receivedQty < orderItem.requestedQty) {
