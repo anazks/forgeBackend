@@ -55,17 +55,36 @@ class PurchaseService {
         return await Purchase.create(data);
     }
 
-    async deletePurchase(id) {
+    /**
+     * L1 Fix: Deletes a purchase and reverses its stock in Inventory.
+     * All cross-module logic (Inventory update) now lives in the service layer,
+     * not the controller.
+     */
+    async deletePurchase(id, entityId) {
         const purchase = await Purchase.findById(id);
         if (!purchase) {
             throw new AppError('Purchase not found', 404);
         }
-        
+
         const itemId = purchase.item;
-        const quantity = purchase.quantity;
+        const quantity = purchase.quantity || 0;
+        const locationId = purchase.destinationLocation;
+        const purchaseEntity = purchase.entity || entityId;
 
         await purchase.deleteOne();
-        return { itemId, quantity };
+
+        // Reverse the stock addition in Inventory (location-scoped)
+        // Only if this purchase was tracked against a specific location
+        if (itemId && quantity > 0 && locationId) {
+            const Inventory = require('../../inventory/models/inventoryModel');
+            await Inventory.findOneAndUpdate(
+                { materialId: itemId, locationId, entity: purchaseEntity },
+                { $inc: { currentStock: -quantity } },
+                { upsert: false, new: true }
+            );
+        }
+
+        return { success: true };
     }
 }
 

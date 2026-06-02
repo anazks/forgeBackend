@@ -147,7 +147,74 @@ const DailyRevenueSchema = new mongoose.Schema({
         },
         acknowledgedAt: {
             type: Date
+        },
+        aggregatorAmountReceived: {
+            type: Number,
+            default: 0
+        },
+        aggregatorGstVerified: {
+            type: Number,
+            default: 0
+        },
+        aggregatorCommissionVerified: {
+            type: Number,
+            default: 0
         }
+    },
+    cooApproved: {
+        type: Boolean,
+        default: false
+    },
+    cooApprovedAt: {
+        type: Date
+    },
+    financeReconciled: {
+        type: Boolean,
+        default: false
+    },
+    financeReconciledAt: {
+        type: Date
+    },
+    aggregatorExpectedRevenue: {
+        type: Number,
+        default: 0
+    },
+    aggregatorGstDeduction: {
+        type: Number,
+        default: 0
+    },
+    aggregatorCommission: {
+        type: Number,
+        default: 0
+    },
+    aggregatorExpenses: {
+        type: Number,
+        default: 0
+    },
+    aggregatorTotalReceivable: {
+        type: Number,
+        default: 0
+    },
+    cashClosure: {
+        prevDayCashInHand: { type: Number, default: 0 },
+        cashFoodSales: { type: Number, default: 0 },
+        onlineSalesTotal: { type: Number, default: 0 },
+        advancePaymentsReceived: { type: Number, default: 0 },
+        functionOrderFinalPayments: { type: Number, default: 0 },
+        cashExpenses: { type: Number, default: 0 },
+        functionOrderIds: [{ type: mongoose.Schema.ObjectId, ref: 'FunctionOrder' }],
+        expenseIds: [{ type: mongoose.Schema.ObjectId, ref: 'Expense' }],
+        advanceCashTaken: { type: Number, default: 0 },
+        cashDepositedToBank: { type: Number, default: 0 },
+        cashInHand: { type: Number, default: 0 },
+        expectedCash: { type: Number, default: 0 },
+        difference: { type: Number, default: 0 },
+        submittedForCOO: { type: Boolean, default: false },
+        submittedAt: { type: Date },
+        cooConfirmed: { type: Boolean, default: false },
+        cooConfirmedAt: { type: Date },
+        financeAcknowledged: { type: Boolean, default: false },
+        financeAcknowledgedAt: { type: Date }
     },
     entity: {
         type: mongoose.Schema.ObjectId,

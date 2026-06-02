@@ -36,6 +36,10 @@ const ExpenseSchema = new mongoose.Schema({
         required: [true, 'Please add an amount'],
         min: [0, 'Amount cannot be negative']
     },
+    approvedAmount: {
+        type: Number,
+        min: [0, 'Approved amount cannot be negative']
+    },
     paymentMethod: {
         type: String,
         enum: ['Cash', 'UPI', 'Card', 'Bank Transfer'],

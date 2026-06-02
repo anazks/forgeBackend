@@ -14,11 +14,6 @@ const EmployeeSchema = new mongoose.Schema({
         type: String,
         required: [true, 'Please add a designation']
     },
-    department: {
-        type: String,
-        enum: ['Finance', 'Kitchen Operations', 'Center Operations', 'Store Operations', 'Others'],
-        required: [true, 'Please select a department']
-    },
     dateOfJoining: {
         type: Date,
         required: [true, 'Please add a date of joining']
@@ -48,6 +43,16 @@ const EmployeeSchema = new mongoose.Schema({
         type: mongoose.Schema.ObjectId,
         ref: 'Entity',
         required: false
+    },
+    address: {
+        type: String
+    },
+    emergencyContact: {
+        type: String
+    },
+    monthlyTakeHomeSalary: {
+        type: Number,
+        default: 0
     },
     createdAt: {
         type: Date,

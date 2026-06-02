@@ -1,9 +1,10 @@
 const StockRequest = require('../models/stockRequestModel');
-const RawMaterial = require('../../rawmaterials/models/rawMaterialModel');
 const Bom = require('../../boms/models/bomModel');
 const InternalOrder = require('../../production/models/internalOrderModel');
 const { AppError } = require('../../../middleware/errorHandler');
 const userService = require('../../users/services/userService');
+// L9: RawMaterial removed — was imported but never used in this controller.
+// Raw material data access goes through rawMaterialService (called from stockRequestService).
 
 // @desc    COO edits a single item's requested quantity
 // @route   PUT /api/foodrequests/:id/items
@@ -19,6 +20,27 @@ exports.updateItemQty = async (req, res, next) => {
 
         const item = stockReq.requestedItems.id(itemId);
         if (!item) throw new AppError('Item not found in request', 404);
+
+        // BUG-CO3 Fix: Check if Kitchen has already dispatched more than the new qty
+        const relatedOrders = await InternalOrder.find({ foodRequestId: req.params.id }).lean();
+        let alreadyDispatched = 0;
+        for (const order of relatedOrders) {
+            const orderItem = order.items.find(i =>
+                (item.bomId && i.bomId?.toString() === item.bomId.toString()) ||
+                (item.menuId && i.menuId?.toString() === item.menuId.toString()) ||
+                (i.itemName === item.materialName)
+            );
+            if (orderItem && (orderItem.dispatchedQty || 0) > alreadyDispatched) {
+                alreadyDispatched = orderItem.dispatchedQty || 0;
+            }
+        }
+
+        if (Number(requestedQty) < alreadyDispatched) {
+            throw new AppError(
+                `Cannot reduce quantity to ${requestedQty}. Kitchen has already dispatched ${alreadyDispatched} unit(s) for this item. Please enter ${alreadyDispatched} or more.`,
+                400
+            );
+        }
 
         item.requestedQty = Math.max(0, Number(requestedQty));
         await stockReq.save();
@@ -196,10 +218,15 @@ exports.cooBulkAction = async (req, res, next) => {
 
         const requestIds = [...new Set(actions.map(a => a.requestId))];
         const updatedRequests = [];
+        // BUG-CO2 Fix: track requests that were not found so COO sees a meaningful partial failure report
+        const skippedRequestIds = [];
 
         for (const reqId of requestIds) {
             const stockReq = await StockRequest.findById(reqId);
-            if (!stockReq) continue;
+            if (!stockReq) {
+                skippedRequestIds.push(reqId);
+                continue;
+            }
 
             const reqActions = actions.filter(a => a.requestId === reqId);
             
@@ -237,7 +264,16 @@ exports.cooBulkAction = async (req, res, next) => {
             updatedRequests.push(stockReq);
         }
 
-        res.status(200).json({ success: true, data: updatedRequests, message: 'Bulk action applied successfully' });
+        const response = {
+            success: true,
+            data: updatedRequests,
+            message: skippedRequestIds.length > 0
+                ? `Bulk action applied. ${skippedRequestIds.length} request(s) were skipped (not found or deleted): ${skippedRequestIds.join(', ')}`
+                : 'Bulk action applied successfully',
+            skippedRequestIds
+        };
+
+        res.status(200).json(response);
     } catch (error) {
         next(error);
     }
@@ -272,53 +308,66 @@ exports.getDemandSummary = async (req, res, next) => {
 exports.receiveRequest = async (req, res, next) => {
     try {
         const { items } = req.body;
-        const stockReq = await StockRequest.findById(req.params.id);
-        
-        if (!stockReq) {
-            throw new AppError('Request not found', 404);
-        }
-        
-        if (stockReq.status === 'RECEIVED') {
+
+        // H5 Fix: Atomic status guard — prevents double-receipt from concurrent requests
+        // (e.g., double-click, network retry). MongoDB guarantees this check+update is
+        // indivisible: only the FIRST call wins; the second sees no matching document.
+        const guard = await StockRequest.findOneAndUpdate(
+            { _id: req.params.id, status: { $ne: 'RECEIVED' } },
+            { $set: { status: 'RECEIVED', receivedAt: new Date() } },
+            { new: true }
+        );
+
+        if (!guard) {
+            // Either not found, or already received by a concurrent request
+            const existing = await StockRequest.findById(req.params.id).lean().select('status');
+            if (!existing) throw new AppError('Request not found', 404);
             throw new AppError('Request already marked as received', 400);
         }
 
-        // Deduct stock based on received quantity
+        // Now process the individual item quantities against the atomically-locked record
+        const stockReq = await StockRequest.findById(req.params.id);
+        const Inventory = require('../../inventory/models/inventoryModel');
+
         for (const item of items) {
-            const originalItem = stockReq.requestedItems.find(i => 
-                i.materialName === item.materialName && 
-                (i.material?.toString() === item.material?.toString() || 
+            const originalItem = stockReq.requestedItems.find(i =>
+                i.materialName === item.materialName &&
+                (i.material?.toString() === item.material?.toString() ||
                  i.bomId?.toString() === item.bomId?.toString() ||
                  i.menuId?.toString() === item.menuId?.toString())
             );
 
             if (originalItem && item.receivedQty !== undefined) {
                 const recQty = Number(item.receivedQty);
-                
+
                 if (recQty > 0) {
+                    // BOM items (dishes) are daily-consumption — do NOT track in Inventory
                     if (originalItem.isMenuItem) {
-                        const query = originalItem.bomId ? { _id: originalItem.bomId } : { menuItem: originalItem.menuId };
-                        const bom = await Bom.findOne(query);
-                        if (bom) {
-                            for (const ingredient of bom.items) {
-                                const deductQty = ingredient.quantity * recQty;
-                                await RawMaterial.findByIdAndUpdate(ingredient.materialId, {
-                                    $inc: { currentStock: -deductQty }
-                                });
-                            }
-                        }
+                        // No inventory update needed for BOM/dish items
                     } else if (originalItem.material) {
-                        await RawMaterial.findByIdAndUpdate(originalItem.material, {
-                            $inc: { currentStock: -recQty }
-                        });
+                        // Raw material: increment stock at the receiving center's Inventory record
+                        await Inventory.findOneAndUpdate(
+                            {
+                                materialId: originalItem.material,
+                                locationId: stockReq.centerId,
+                                entity: stockReq.entity
+                            },
+                            { $inc: { currentStock: recQty } },
+                            { upsert: true, new: true, runValidators: false }
+                        );
                     }
                 }
                 originalItem.receivedQty = recQty;
             }
         }
 
-        stockReq.status = 'RECEIVED';
-        stockReq.receivedAt = new Date();
+        // status + receivedAt already set by the atomic guard above; save item quantities
         await stockReq.save();
+
+        if (stockReq.functionOrderId) {
+            const functionOrderService = require('../../functionorders/services/functionOrderService');
+            await functionOrderService.syncFunctionOrderStatus(stockReq.functionOrderId);
+        }
 
         res.status(200).json({ success: true, data: stockReq, message: 'Receipt confirmed and stock adjusted' });
     } catch (error) {

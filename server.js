@@ -38,9 +38,11 @@ app.use('/api/finance', require('./modules/finance/routes/financeRoutes'));
 app.use('/api/inventory', require('./modules/inventory/routes/inventoryRoutes'));
 app.use('/api/production', require('./modules/production/routes/productionRoutes'));
 app.use('/api/revenue', require('./modules/revenue/routes/revenueRoutes'));
+app.use('/api/function-orders', require('./modules/functionorders/routes/functionOrderRoutes'));
 
 
-// Seed Super Admin if not exists
+// Seed Super Admin if not exists (reads credentials from .env)
+// HR and all other users should be created through the Admin UI, not seeded here.
 const User = require('./modules/users/models/model');
 const seedSuperAdmin = async () => {
     try {
@@ -52,10 +54,12 @@ const seedSuperAdmin = async () => {
                 password: process.env.SUPER_ADMIN_PASSWORD,
                 role: 'SUPER_ADMIN'
             });
-            console.log(`Sample Super Admin created: ${process.env.SUPER_ADMIN_EMAIL}`);
+            console.log(`Super Admin created: ${process.env.SUPER_ADMIN_EMAIL}`);
         }
+        // L5 Fix: HR seed with hardcoded password removed.
+        // Create HR users via Admin UI \u2014 same flow as Kitchen, Center, Restaurant etc.
     } catch (err) {
-        console.error('Error seeding super admin:', err.message);
+        console.error('Error seeding users:', err.message);
     }
 };
 

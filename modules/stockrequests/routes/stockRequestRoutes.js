@@ -9,7 +9,7 @@ const {
     cooBulkAction,
     updateItemQty
 } = require('../controllers/stockRequestController');
-const { protect } = require('../../../middleware/auth');
+const { protect, authorize } = require('../../../middleware/auth');
 
 const router = express.Router();
 
@@ -19,13 +19,13 @@ router.route('/')
     .get(protect, getStockRequests)
     .post(protect, createStockRequest);
 
+// COO-level actions: approve, reject, bulk actions
+router.put('/coo-bulk-action', protect, authorize('COO', 'ADMIN', 'SUPER_ADMIN'), cooBulkAction);
+router.put('/:id/items',   protect, authorize('COO', 'ADMIN', 'SUPER_ADMIN'), updateItemQty);
+router.put('/:id/approve', protect, authorize('COO', 'ADMIN', 'SUPER_ADMIN'), approveRequest);
+router.put('/:id/reject',  protect, authorize('COO', 'ADMIN', 'SUPER_ADMIN'), rejectRequest);
 
-
-router.put('/coo-bulk-action', protect, cooBulkAction);
-
-router.put('/:id/items', protect, updateItemQty);
-router.put('/:id/approve', protect, approveRequest);
-router.put('/:id/reject', protect, rejectRequest);
-router.put('/:id/receive', protect, receiveRequest);
+// Location-level receive: Centers, Kitchen, Restaurant confirm physical receipt
+router.put('/:id/receive', protect, authorize('CENTERS', 'KITCHEN', 'RESTAURANT', 'ADMIN', 'SUPER_ADMIN'), receiveRequest);
 
 module.exports = router;

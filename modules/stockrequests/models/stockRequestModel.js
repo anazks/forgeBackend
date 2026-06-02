@@ -69,6 +69,11 @@ const StockRequestSchema = new mongoose.Schema({
             return tomorrow;
         }
     },
+    functionOrderId: {
+        type: mongoose.Schema.ObjectId,
+        ref: 'FunctionOrder',
+        required: false
+    },
     createdAt: { type: Date, default: Date.now }
 });
 

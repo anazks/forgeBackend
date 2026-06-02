@@ -1,5 +1,4 @@
 const InternalOrder = require('../models/internalOrderModel');
-const Inventory = require('../../inventory/models/inventoryModel');
 const Bom = require('../../boms/models/bomModel');
 const { AppError } = require('../../../middleware/errorHandler');
 
@@ -19,6 +18,38 @@ class ProductionService {
             throw new AppError('Order not found', 404);
         }
 
+        const inventoryService = require('../../inventory/services/inventoryService');
+
+        /**
+         * BUG-K3 Fix: Recursively deduct BOM ingredients including nested sub-assemblies.
+         * @param {*} bomId  - The BOM document _id to explode
+         * @param {*} qty    - Quantity multiplier (number of dishes)
+         * @param {*} locationId - Kitchen/source location
+         * @param {*} entityId
+         */
+        async function deductBomIngredients(bomId, qty, locationId, entityId) {
+            const bom = await Bom.findById(bomId).lean();
+            if (!bom || !bom.items) return;
+
+            for (const bomItem of bom.items) {
+                if (!bomItem.materialId) continue;
+
+                if (bomItem.type === 'BOM Item') {
+                    // Recurse into sub-assembly BOM
+                    await deductBomIngredients(bomItem.materialId, bomItem.quantity * qty, locationId, entityId);
+                } else {
+                    // Raw material — safely deduct from location Inventory
+                    const requiredQty = bomItem.quantity * qty;
+                    await inventoryService.safeDeductStock(
+                        bomItem.materialId,
+                        locationId,
+                        entityId,
+                        requiredQty
+                    );
+                }
+            }
+        }
+
         let fullyDispatched = true;
         let anyDispatched = false;
 
@@ -26,35 +57,26 @@ class ProductionService {
             const dispatchReq = itemsToDispatch.find(i => i.itemId === orderItem._id.toString());
             if (dispatchReq && dispatchReq.dispatchQty > 0) {
                 const qtyToDispatch = Number(dispatchReq.dispatchQty);
-                orderItem.dispatchedQty += qtyToDispatch;
-                
-                // Deduct Raw Materials based on BOM
-                if (orderItem.bomId) {
-                    const bom = await Bom.findById(orderItem.bomId).lean();
-                    if (bom && bom.items) {
-                        for (const bomItem of bom.items) {
-                            if (bomItem.materialId) {
-                                if (bomItem.type === 'BOM Item') {
-                                    // BOM items are not tracked in inventory; skip sub-assembly stock deductions
-                                    continue;
-                                }
-                                const requiredQty = bomItem.quantity * qtyToDispatch;
-                                let deductId = bomItem.materialId;
-                                await Inventory.findOneAndUpdate(
-                                    { 
-                                        materialId: deductId, 
-                                        locationId: order.sourceLocation,
-                                        entity: order.entity
-                                    },
-                                    { $inc: { currentStock: -requiredQty } },
-                                    { upsert: true, new: true, runValidators: false }
-                                );
-                            }
-                        }
-                    }
+
+                // BUG-K1 Fix: If this item is already fully dispatched, skip re-deduction
+                if (orderItem.status === 'DISPATCHED') {
+                    continue;
                 }
+
+                orderItem.dispatchedQty += qtyToDispatch;
+
+                // Deduct ingredients via recursive BOM explosion
+                if (orderItem.bomId) {
+                    await deductBomIngredients(
+                        orderItem.bomId,
+                        qtyToDispatch,
+                        order.sourceLocation,
+                        order.entity
+                    );
+                }
+
                 anyDispatched = true;
-                
+
                 if (orderItem.dispatchedQty >= orderItem.requestedQty) {
                     orderItem.status = 'DISPATCHED';
                 } else {
@@ -135,6 +157,15 @@ class ProductionService {
             order.status = fullyReceived ? 'RECEIVED' : 'PARTIAL_RECEIPT';
             order.receivedAt = new Date();
             await order.save();
+
+            if (order.foodRequestId) {
+                const FoodRequestModel = require('../../stockrequests/models/stockRequestModel');
+                const foodReq = await FoodRequestModel.findById(order.foodRequestId).lean().select('functionOrderId');
+                if (foodReq && foodReq.functionOrderId) {
+                    const functionOrderService = require('../../functionorders/services/functionOrderService');
+                    await functionOrderService.syncFunctionOrderStatus(foodReq.functionOrderId);
+                }
+            }
         }
 
         return order;

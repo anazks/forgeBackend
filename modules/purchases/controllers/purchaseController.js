@@ -3,6 +3,7 @@ const PurchaseRequest = require('../models/purchaseRequestModel');
 const Bill = require('../models/billModel');
 const RawMaterial = require('../../rawmaterials/models/rawMaterialModel');
 const Inventory = require('../../inventory/models/inventoryModel');
+const { AppError } = require('../../../middleware/errorHandler');
 
 const purchaseService = require('../services/purchaseService');
 const rawMaterialService = require('../../rawmaterials/services/rawMaterialService');
@@ -54,13 +55,8 @@ exports.createPurchase = async (req, res, next) => {
 // @route   DELETE /api/purchases/:id
 exports.deletePurchase = async (req, res, next) => {
     try {
-        const { itemId, quantity } = await purchaseService.deletePurchase(req.params.id);
-        
-        // Reverse stock update using cross-domain service call
-        if (itemId) {
-            await rawMaterialService.adjustStock(itemId, -quantity);
-        }
-
+        // L1 Fix: All delete logic (including Inventory reversal) is now in the service layer.
+        await purchaseService.deletePurchase(req.params.id, req.user.entity);
         res.status(200).json({ success: true, data: {} });
     } catch (error) {
         next(error);
@@ -71,19 +67,33 @@ exports.deletePurchase = async (req, res, next) => {
 
 // @desc    Create Purchase Request
 // @route   POST /api/purchases/requests
-// @desc    Create Purchase Request
-// @route   POST /api/purchases/requests
-exports.createPurchaseRequest = async (req, res) => {
+exports.createPurchaseRequest = async (req, res, next) => {
     try {
         req.body.requestedBy = req.user._id;
         if (req.user.role !== 'SUPER_ADMIN') {
             req.body.entity = req.user.entity;
         }
 
+        // STORE role must always provide a destinationLocation
+        if (req.user.role === 'STORE' && !req.body.destinationLocation) {
+            return res.status(400).json({ success: false, error: 'Destination location is required for Store Manager purchase requests.' });
+        }
+
         // Auto-approve if it comes from the Stock Requests gap analysis with a destination location
         if (req.body.destinationLocation) {
             req.body.status = 'BILLED';
-            
+
+            // H4 Fix: Vendor must be present before we save anything.
+            // Without a vendor, Bill.create() would fail AFTER the PR is saved, leaving an orphaned PR.
+            const vendorId = req.body.vendor || req.body.vendorId;
+            if (!vendorId) {
+                return res.status(400).json({
+                    success: false,
+                    error: 'A vendor must be selected before raising a Purchase Request.'
+                });
+            }
+            req.body.vendor = vendorId;
+
             // Persistent Duplicate PR Guard (arch-compliant via service layer):
             // Block if ANY pending Bill already covers the same items at the same location,
             // regardless of who raised it (Store Manager or COO).
@@ -118,7 +128,7 @@ exports.createPurchaseRequest = async (req, res) => {
             }));
             await Bill.create({
                 purchaseRequest: pr._id,
-                vendor: pr.vendor || req.body.vendorId, // Use vendorId if passed directly
+                vendor: pr.vendor,
                 items: billItems,
                 totalAmount: billItems.reduce((acc, curr) => acc + curr.total, 0),
                 entity: pr.entity,
@@ -129,19 +139,19 @@ exports.createPurchaseRequest = async (req, res) => {
 
         res.status(201).json({ success: true, data: pr });
     } catch (error) {
-        res.status(400).json({ success: false, error: error.message });
+        next(error);
     }
 };
 
 // @desc    Get all Purchase Requests
 // @route   GET /api/purchases/requests
-exports.getPurchaseRequests = async (req, res) => {
+exports.getPurchaseRequests = async (req, res, next) => {
     try {
         let query = {};
         if (req.user.role !== 'SUPER_ADMIN') {
             query.entity = req.user.entity;
         }
-        if (req.user.role === 'CENTERS' || req.user.role === 'KITCHEN' || req.user.role === 'RESTAURANT') {
+        if (['CENTERS', 'KITCHEN', 'RESTAURANT', 'AGGREGATE'].includes(req.user.role)) {
             query.destinationLocation = req.user._id;
         }
         const requests = await PurchaseRequest.find(query)
@@ -152,17 +162,17 @@ exports.getPurchaseRequests = async (req, res) => {
             
         res.status(200).json({ success: true, data: requests });
     } catch (error) {
-        res.status(400).json({ success: false, error: error.message });
+        next(error);
     }
 };
 
 // @desc    Accept/Approve Purchase Request & Generate Bill
 // @route   PUT /api/purchases/requests/:id/approve
-exports.approvePurchaseRequest = async (req, res) => {
+exports.approvePurchaseRequest = async (req, res, next) => {
     try {
         const { vendor, items } = req.body;
         const pr = await PurchaseRequest.findById(req.params.id);
-        if (!pr) return res.status(404).json({ success: false, error: 'PR not found' });
+        if (!pr) throw new AppError('PR not found', 404);
 
         // Update PR
         pr.vendor = vendor || pr.vendor;
@@ -196,7 +206,7 @@ exports.approvePurchaseRequest = async (req, res) => {
 
         res.status(200).json({ success: true, data: { pr, bill } });
     } catch (error) {
-        res.status(400).json({ success: false, error: error.message });
+        next(error);
     }
 };
 
@@ -204,13 +214,13 @@ exports.approvePurchaseRequest = async (req, res) => {
 
 // @desc    Get all Bills
 // @route   GET /api/purchases/bills
-exports.getBills = async (req, res) => {
+exports.getBills = async (req, res, next) => {
     try {
         let query = {};
         if (req.user.role !== 'SUPER_ADMIN') {
             query.entity = req.user.entity;
         }
-        if (req.user.role === 'CENTERS' || req.user.role === 'KITCHEN' || req.user.role === 'RESTAURANT') {
+        if (['CENTERS', 'KITCHEN', 'RESTAURANT', 'AGGREGATE'].includes(req.user.role)) {
             query.destinationLocation = req.user._id;
         }
         const bills = await Bill.find(query)
@@ -220,21 +230,30 @@ exports.getBills = async (req, res) => {
             
         res.status(200).json({ success: true, data: bills });
     } catch (error) {
-        res.status(400).json({ success: false, error: error.message });
+        next(error);
     }
 };
 
 // @desc    Update Bill Payment or Delivery
 // @route   PUT /api/purchases/bills/:id
-exports.updateBill = async (req, res) => {
+exports.updateBill = async (req, res, next) => {
     try {
         const oldBill = await Bill.findById(req.params.id);
+        if (!oldBill) throw new AppError('Bill not found', 404);
+
+        if (req.body.paymentStatus) {
+            const canMarkPaid = ['FINANCE', 'COO', 'ADMIN', 'SUPER_ADMIN'].includes(req.user.role);
+            if (!canMarkPaid) {
+                throw new AppError('Only Finance, COO, or Admin can update payment status.', 403);
+            }
+        }
+
         // Validate unitPrice if marking as DELIVERED
         if (req.body.deliveryStatus === 'DELIVERED') {
             const itemsToCheck = req.body.items || oldBill.items;
             const invalidPriceItem = itemsToCheck.find(i => Number(i.unitPrice) <= 0);
             if (invalidPriceItem) {
-                return res.status(400).json({ success: false, error: 'All received items must have a unit price greater than 0.' });
+                throw new AppError('All received items must have a unit price greater than 0.', 400);
             }
         }
 
@@ -277,6 +296,6 @@ exports.updateBill = async (req, res) => {
         
         res.status(200).json({ success: true, data: bill });
     } catch (error) {
-        res.status(400).json({ success: false, error: error.message });
+        next(error);
     }
 };

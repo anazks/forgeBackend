@@ -1,5 +1,6 @@
 const Expense = require('../models/expenseModel');
 const { AppError } = require('../../../middleware/errorHandler');
+const DailyRevenue = require('../../revenue/models/dailyRevenueModel');
 
 // @desc    Create a new expense
 // @route   POST /api/expenses
@@ -17,6 +18,21 @@ exports.createExpense = async (req, res, next) => {
         let entityId = req.user.entity;
         if (req.user.role === 'SUPER_ADMIN' && req.body.entity) {
             entityId = req.body.entity;
+        }
+
+        // Check if daily revenue is closed or submitted for approval
+        const start = new Date(date);
+        start.setHours(0, 0, 0, 0);
+        const end = new Date(date);
+        end.setHours(23, 59, 59, 999);
+
+        const record = await DailyRevenue.findOne({
+            locationId: targetLocationId,
+            date: { $gte: start, $lte: end }
+        }).lean();
+
+        if (record && (record.status === 'CLOSED' || (record.cashClosure && record.cashClosure.submittedForCOO) || record.cooApproved)) {
+            return next(new AppError('Cannot log or edit expenses for this day as the daily closure is already closed or submitted for approval', 400));
         }
 
         const expense = await Expense.create({
@@ -51,12 +67,16 @@ exports.getExpenses = async (req, res, next) => {
         }
 
         // Role-based permissions
-        const isPrivileged = ['SUPER_ADMIN', 'ADMIN', 'COO', 'FINANCE'].includes(req.user.role);
+        const isPrivileged = ['SUPER_ADMIN', 'ADMIN', 'COO', 'FINANCE', 'PARTNER'].includes(req.user.role);
         if (!isPrivileged) {
             // Regular user sees only their own location's expenses
             query.locationId = req.user._id;
         } else if (req.query.locationId && req.query.locationId !== 'ALL') {
-            query.locationId = req.query.locationId;
+            if (req.query.locationId.includes(',')) {
+                query.locationId = { $in: req.query.locationId.split(',') };
+            } else {
+                query.locationId = req.query.locationId;
+            }
         }
 
         // Status filter
@@ -100,6 +120,11 @@ exports.cooApproveExpense = async (req, res, next) => {
             return next(new AppError('Expense not found', 404));
         }
 
+        // BUG-F3 Fix: Guard against cross-entity approvals
+        if (req.user.role !== 'SUPER_ADMIN' && expense.entity?.toString() !== req.user.entity?.toString()) {
+            return next(new AppError('Access denied: this expense belongs to a different entity.', 403));
+        }
+
         if (expense.status !== 'PENDING_COO') {
             return next(new AppError(`Expense cannot be approved by COO in its current status: ${expense.status}`, 400));
         }
@@ -121,6 +146,11 @@ exports.cooRejectExpense = async (req, res, next) => {
         const expense = await Expense.findById(req.params.id);
         if (!expense) {
             return next(new AppError('Expense not found', 404));
+        }
+
+        // BUG-F3 Fix: Guard against cross-entity operations
+        if (req.user.role !== 'SUPER_ADMIN' && expense.entity?.toString() !== req.user.entity?.toString()) {
+            return next(new AppError('Access denied: this expense belongs to a different entity.', 403));
         }
 
         if (expense.status !== 'PENDING_COO') {
@@ -146,6 +176,11 @@ exports.financeApproveExpense = async (req, res, next) => {
             return next(new AppError('Expense not found', 404));
         }
 
+        // BUG-F3 Fix: Guard against cross-entity approvals
+        if (req.user.role !== 'SUPER_ADMIN' && expense.entity?.toString() !== req.user.entity?.toString()) {
+            return next(new AppError('Access denied: this expense belongs to a different entity.', 403));
+        }
+
         if (expense.status !== 'PENDING_FINANCE') {
             return next(new AppError(`Expense cannot be approved by Finance in its current status: ${expense.status}`, 400));
         }
@@ -167,6 +202,11 @@ exports.financeRejectExpense = async (req, res, next) => {
         const expense = await Expense.findById(req.params.id);
         if (!expense) {
             return next(new AppError('Expense not found', 404));
+        }
+
+        // BUG-F3 Fix: Guard against cross-entity operations
+        if (req.user.role !== 'SUPER_ADMIN' && expense.entity?.toString() !== req.user.entity?.toString()) {
+            return next(new AppError('Access denied: this expense belongs to a different entity.', 403));
         }
 
         if (expense.status !== 'PENDING_FINANCE') {

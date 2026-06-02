@@ -21,7 +21,7 @@ exports.getExpenseCategories = async (req, res) => {
                 query.$or.push({ applicableLocations: { $in: ['ALL', 'Resort'] } });
             } else if (req.user.role === 'KITCHEN') {
                 query.$or.push({ applicableLocations: { $in: ['ALL', 'Kitchen'] } });
-            } else if (req.user.role === 'CENTERS') {
+            } else if (req.user.role === 'CENTERS' || req.user.role === 'AGGREGATE') {
                 query.$or.push({ applicableLocations: { $in: ['ALL', 'Center'] } });
             } else if (req.user.role === 'RESTAURANT') {
                 query.$or.push({ applicableLocations: { $in: ['ALL', 'Kitchen', 'Center', 'Restaurant'] } });

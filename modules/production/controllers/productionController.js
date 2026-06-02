@@ -35,7 +35,7 @@ exports.getInternalOrders = async (req, res, next) => {
 
         res.status(200).json({ success: true, count: orders.length, data: orders });
     } catch (error) {
-        res.status(400).json({ success: false, error: error.message });
+        next(error);
     }
 };
 
@@ -44,6 +44,20 @@ exports.getInternalOrders = async (req, res, next) => {
 exports.dispatchOrder = async (req, res, next) => {
     try {
         const { itemsToDispatch } = req.body; // Array of { itemId, dispatchQty }
+
+        // H2 ownership check: non-admin users can only dispatch from their own location.
+        // productionService.dispatchOrder validates the order exists and uses order.sourceLocation
+        // for inventory deductions. We pre-check here to fail fast with a clear 403 message.
+        const isAdminRole = ['COO', 'ADMIN', 'SUPER_ADMIN'].includes(req.user.role);
+        if (!isAdminRole) {
+            const InternalOrder = require('../models/internalOrderModel');
+            const order = await InternalOrder.findById(req.params.id).lean().select('sourceLocation');
+            if (order && order.sourceLocation.toString() !== req.user._id.toString()) {
+                const { AppError } = require('../../../middleware/errorHandler');
+                throw new AppError('You can only dispatch orders from your own location', 403);
+            }
+        }
+
         const order = await productionService.dispatchOrder(
             req.params.id,
             itemsToDispatch,
@@ -52,7 +66,7 @@ exports.dispatchOrder = async (req, res, next) => {
         );
         res.status(200).json({ success: true, data: order });
     } catch (error) {
-        res.status(400).json({ success: false, error: error.message });
+        next(error);
     }
 };
 
@@ -69,6 +83,6 @@ exports.receiveOrder = async (req, res, next) => {
         );
         res.status(200).json({ success: true, data: order });
     } catch (error) {
-        res.status(400).json({ success: false, error: error.message });
+        next(error);
     }
 };
