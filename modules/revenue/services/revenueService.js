@@ -137,6 +137,7 @@ class RevenueService {
                                         rateDoc = await MenuRate.findOne({ bom: item.bomId, center: null }).lean();
                                     }
                                     const price = rateDoc ? (rateDoc.centerRate || rateDoc.rate || 0) : 0;
+                                    const buyingPrice = rateDoc ? (rateDoc.rate || 0) : (bom.kitchenPrice || 0);
                                     bomMap[bomIdStr] = {
                                         bomId: item.bomId,
                                         itemName: bom.dishName,
@@ -144,6 +145,7 @@ class RevenueService {
                                         unit: bom.unit || 'pcs',
                                         stockQty: 0,
                                         soldQty: 0,
+                                        buyingPrice: buyingPrice,
                                         unitPrice: price
                                     };
                                 }
@@ -170,6 +172,11 @@ class RevenueService {
                     for (const menu of directMenus) {
                         const inv = invMap[menu._id.toString()];
                         if (inv && inv.currentStock > 0) {
+                            let rateDoc = await MenuRate.findOne({ menu: menu._id, center: locationId }).lean();
+                            if (!rateDoc) {
+                                rateDoc = await MenuRate.findOne({ menu: menu._id, center: null }).lean();
+                            }
+                            const buyingPrice = rateDoc ? (rateDoc.rate || 0) : 0;
                             b2cList.push({
                                 menuItem: menu._id,
                                 itemName: menu.name,
@@ -177,6 +184,7 @@ class RevenueService {
                                 unit: menu.unit === 'custom' ? (menu.customUnit || menu.unit) : menu.unit,
                                 stockQty: inv.currentStock,
                                 soldQty: 0,
+                                buyingPrice: buyingPrice,
                                 // Use menu.mrpPrice as the fixed selling price per unit.
                                 // Falls back to 0 for legacy items created before mrpPrice was added.
                                 unitPrice: menu.mrpPrice || 0,
@@ -253,6 +261,7 @@ class RevenueService {
                 unit: item.unit,
                 stockQty: Number(item.stockQty) || 0,
                 soldQty: Number(item.soldQty) || 0,
+                buyingPrice: Number(item.buyingPrice) || 0,
                 unitPrice: Number(item.unitPrice) || 0,
                 totalVal: (Number(item.soldQty) || 0) * (Number(item.unitPrice) || 0)
             }));
@@ -996,6 +1005,7 @@ class RevenueService {
                 unit: item.unit,
                 stockQty: Number(item.stockQty) || 0,
                 soldQty: Number(item.soldQty) || 0,
+                buyingPrice: Number(item.buyingPrice) || 0,
                 unitPrice: Number(item.unitPrice) || 0,
                 totalVal: (Number(item.soldQty) || 0) * (Number(item.unitPrice) || 0)
             }));

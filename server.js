@@ -33,7 +33,6 @@ app.use('/api/events', require('./modules/events/routes/eventRoutes'));
 app.use('/api/expense-categories', require('./modules/expenses/routes/expenseCategoryRoutes'));
 app.use('/api/expenses', require('./modules/expenses/routes/expenseRoutes'));
 app.use('/api/purchases', require('./modules/purchases/routes/purchaseRoutes'));
-app.use('/api/wastage', require('./modules/wastage/routes/wastageRoutes'));
 app.use('/api/finance', require('./modules/finance/routes/financeRoutes'));
 app.use('/api/inventory', require('./modules/inventory/routes/inventoryRoutes'));
 app.use('/api/production', require('./modules/production/routes/productionRoutes'));

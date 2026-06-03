@@ -14,7 +14,6 @@ const User = require('./modules/users/models/model');
 
 // Additional models
 const InternalOrder = require('./modules/production/models/internalOrderModel');
-const Wastage = require('./modules/wastage/models/wastageModel');
 const Vendor = require('./modules/vendors/models/vendorModel');
 const Payment = require('./modules/payments/models/paymentModel');
 const Finance = require('./modules/finance/models/financeModel');
@@ -98,11 +97,6 @@ async function run() {
     if (target === 'all' || target === 'production') {
       await InternalOrder.deleteMany({});
       console.log('Cleared Internal Orders');
-    }
-
-    if (target === 'all' || target === 'wastage') {
-      await Wastage.deleteMany({});
-      console.log('Cleared Wastage records');
     }
 
     if (target === 'all' || target === 'vendors') {
