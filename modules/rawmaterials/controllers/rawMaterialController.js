@@ -30,24 +30,10 @@ exports.createRawMaterial = async (req, res) => {
             req.body.entity = req.user.entity;
         }
 
-        // Auto-generate a unique 4-digit simple code
-        let simpleCode;
-        let attempts = 0;
-        while (attempts < 100) {
-            const count = await RawMaterial.countDocuments();
-            const candidate = String(count + 1 + attempts).padStart(4, '0');
-            const existing = await RawMaterial.findOne({ simpleCode: candidate });
-            if (!existing) {
-                simpleCode = candidate;
-                break;
-            }
-            attempts++;
-        }
-        if (!simpleCode) {
-            return res.status(500).json({ success: false, error: 'Could not generate a unique simple code' });
-        }
+        // Clean up: simpleCode is now strictly auto-generated in rawMaterialModel.js pre-validate hook.
+        // Discard any manually provided simpleCode.
+        delete req.body.simpleCode;
 
-        req.body.simpleCode = simpleCode;
         const material = await RawMaterial.create(req.body);
         res.status(201).json({ success: true, data: material });
     } catch (error) {

@@ -7,7 +7,8 @@ const {
     getPurchaseRequests,
     approvePurchaseRequest,
     getBills,
-    updateBill
+    updateBill,
+    deletePurchaseRequest
 } = require('../controllers/purchaseController');
 const { protect } = require('../../../middleware/auth');
 
@@ -20,6 +21,9 @@ router.route('/')
 router.route('/requests')
     .get(protect, getPurchaseRequests)
     .post(protect, createPurchaseRequest);
+
+router.route('/requests/:id')
+    .delete(protect, deletePurchaseRequest);
 
 router.put('/requests/:id/approve', protect, approvePurchaseRequest);
 

@@ -4,6 +4,7 @@ const EmployeeSchema = new mongoose.Schema({
     employeeCode: {
         type: String,
         unique: true,
+        immutable: true,
         required: [true, 'Please add an employee code']
     },
     employeeName: {
@@ -57,6 +58,38 @@ const EmployeeSchema = new mongoose.Schema({
     createdAt: {
         type: Date,
         default: Date.now
+    }
+});
+
+const CounterSchema = new mongoose.Schema({
+    _id: { type: String, required: true },
+    seq: { type: Number, default: 0 }
+});
+const Counter = mongoose.models.Counter || mongoose.model('Counter', CounterSchema);
+
+EmployeeSchema.pre('validate', async function() {
+    if (this.isNew || !this.employeeCode) {
+        const counterExists = await Counter.findById('employeeCode');
+        if (!counterExists) {
+            const highestDoc = await this.model('Employee').findOne({}, { employeeCode: 1 }).sort({ employeeCode: -1 }).lean();
+            let startSeq = 0;
+            if (highestDoc && highestDoc.employeeCode) {
+                const match = highestDoc.employeeCode.match(/\d+/);
+                startSeq = match ? parseInt(match[0], 10) : 0;
+            }
+            try {
+                await Counter.create({ _id: 'employeeCode', seq: startSeq });
+            } catch (e) {
+                // Ignore duplicate key error if created concurrently
+            }
+        }
+
+        const counter = await Counter.findByIdAndUpdate(
+            'employeeCode',
+            { $inc: { seq: 1 } },
+            { new: true, upsert: true }
+        );
+        this.employeeCode = `EMP${counter.seq.toString().padStart(3, '0')}`;
     }
 });
 

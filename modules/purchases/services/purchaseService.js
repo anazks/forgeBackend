@@ -52,6 +52,15 @@ class PurchaseService {
         if (data.vendor === '') {
             delete data.vendor;
         }
+        if (data.vendorId && !data.vendor) {
+            data.vendor = data.vendorId;
+        }
+        if (data.items && Array.isArray(data.items) && data.items.length > 0) {
+            const firstItem = data.items[0];
+            data.item = firstItem.item;
+            data.quantity = firstItem.purchasedQty || firstItem.quantity;
+            data.unitPrice = firstItem.unitPrice;
+        }
         return await Purchase.create(data);
     }
 

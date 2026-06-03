@@ -73,10 +73,18 @@ exports.createPurchaseRequest = async (req, res, next) => {
         if (req.user.role !== 'SUPER_ADMIN') {
             req.body.entity = req.user.entity;
         }
+        if (req.body.vendorId && !req.body.vendor) {
+            req.body.vendor = req.body.vendorId;
+        }
 
-        // STORE role must always provide a destinationLocation
-        if (req.user.role === 'STORE' && !req.body.destinationLocation) {
-            return res.status(400).json({ success: false, error: 'Destination location is required for Store Manager purchase requests.' });
+        // Default destinationLocation for location-based roles if not provided
+        if (!req.body.destinationLocation && ['KITCHEN', 'CENTERS', 'RESTAURANT', 'AGGREGATE'].includes(req.user.role)) {
+            req.body.destinationLocation = req.user._id;
+        }
+
+        // Enforce destinationLocation is present for all roles
+        if (!req.body.destinationLocation) {
+            return res.status(400).json({ success: false, error: 'Destination location is required.' });
         }
 
         // Auto-approve if it comes from the Stock Requests gap analysis with a destination location
@@ -106,7 +114,7 @@ exports.createPurchaseRequest = async (req, res, next) => {
                 entityId
             );
 
-            if (duplicateBill) {
+            if (duplicateBill && !req.body.allowDuplicate) {
                 const prCode = duplicateBill.purchaseRequest?.prCode || 'existing PR';
                 return res.status(409).json({
                     success: false,
@@ -295,6 +303,20 @@ exports.updateBill = async (req, res, next) => {
         }
         
         res.status(200).json({ success: true, data: bill });
+    } catch (error) {
+        next(error);
+    }
+};
+
+// @desc    Delete Purchase Request
+// @route   DELETE /api/purchases/requests/:id
+exports.deletePurchaseRequest = async (req, res, next) => {
+    try {
+        const pr = await PurchaseRequest.findById(req.params.id);
+        if (!pr) throw new AppError('Purchase Request not found', 404);
+        
+        await pr.deleteOne();
+        res.status(200).json({ success: true, data: {} });
     } catch (error) {
         next(error);
     }

@@ -43,7 +43,7 @@ const PurchaseRequestSchema = new mongoose.Schema({
     destinationLocation: {
         type: mongoose.Schema.ObjectId,
         ref: 'User',
-        required: false
+        required: true
     },
     status: {
         type: String,
