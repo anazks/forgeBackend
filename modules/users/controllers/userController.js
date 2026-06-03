@@ -1,4 +1,5 @@
 const User = require('../models/model');
+const userService = require('../services/userService');
 
 // @desc    Get all users
 // @route   GET /api/users
@@ -337,28 +338,10 @@ exports.updateUser = async (req, res, next) => {
 // @access  Private/SuperAdmin
 exports.deleteUser = async (req, res, next) => {
     try {
-        const user = await User.findById(req.params.id);
-
-        if (!user) {
-            return res.status(404).json({ success: false, error: 'User not found' });
-        }
-
-        // If user is an admin linked to an entity, remove them from the entity's admins list
-        if (user.entity) {
-            const Entity = require('../../entities/models/Entity');
-            await Entity.findByIdAndUpdate(user.entity, {
-                $pull: { admins: user._id }
-            });
-        }
-
-        await user.deleteOne();
-
-        res.status(200).json({
-            success: true,
-            data: {}
-        });
+        await userService.deleteUser(req.params.id);
+        res.status(200).json({ success: true, data: {} });
     } catch (error) {
-        res.status(400).json({ success: false, error: error.message });
+        res.status(error.statusCode || 400).json({ success: false, error: error.message });
     }
 };
 

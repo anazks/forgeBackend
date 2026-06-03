@@ -48,6 +48,13 @@ exports.createMenu = async (req, res, next) => {
         }
 
         const menu = await Menu.create(req.body);
+
+        // Sync reference on corresponding BOM document
+        if (menu.type === 'BOM' && menu.bom) {
+            const Bom = require('../../boms/models/bomModel');
+            await Bom.findByIdAndUpdate(menu.bom, { menuItem: menu._id });
+        }
+
         res.status(201).json({ success: true, data: menu });
     } catch (error) {
         res.status(400).json({ success: false, error: error.message });
@@ -69,10 +76,23 @@ exports.updateMenu = async (req, res, next) => {
             return res.status(401).json({ success: false, error: 'Not authorized to update this menu' });
         }
 
+        const oldBomId = menu.bom;
+
         menu = await Menu.findByIdAndUpdate(req.params.id, req.body, {
             new: true,
             runValidators: true
         });
+
+        // Sync references on BOM documents if the linked BOM changed
+        if (oldBomId?.toString() !== menu.bom?.toString()) {
+            const Bom = require('../../boms/models/bomModel');
+            if (oldBomId) {
+                await Bom.findByIdAndUpdate(oldBomId, { $unset: { menuItem: 1 } });
+            }
+            if (menu.type === 'BOM' && menu.bom) {
+                await Bom.findByIdAndUpdate(menu.bom, { menuItem: menu._id });
+            }
+        }
 
         res.status(200).json({ success: true, data: menu });
     } catch (error) {
@@ -93,6 +113,12 @@ exports.deleteMenu = async (req, res, next) => {
         // Make sure user owns the menu if not super admin
         if (req.user.role !== 'SUPER_ADMIN' && menu.entity.toString() !== req.user.entity.toString()) {
             return res.status(401).json({ success: false, error: 'Not authorized to delete this menu' });
+        }
+
+        // Clear reference from linked BOM before deleting
+        if (menu.bom) {
+            const Bom = require('../../boms/models/bomModel');
+            await Bom.findByIdAndUpdate(menu.bom, { $unset: { menuItem: 1 } });
         }
 
         await menu.deleteOne();

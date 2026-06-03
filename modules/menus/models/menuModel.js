@@ -29,6 +29,17 @@ const MenuSchema = new mongoose.Schema({
         min: [0, 'MRP price cannot be negative'],
         default: 0
     },
+    type: {
+        type: String,
+        enum: ['BOM', 'DIRECT'],
+        required: [true, 'Please specify a menu item type'],
+        default: 'DIRECT'
+    },
+    bom: {
+        type: mongoose.Schema.ObjectId,
+        ref: 'Bom',
+        required: false
+    },
     entity: {
         type: mongoose.Schema.ObjectId,
         ref: 'Entity',

@@ -109,8 +109,10 @@ async function main() {
   console.log('✔  BOMs created: Test Chapati, Test Salad');
 
   // ── Menu Items ────────────────────────────────────────────────────────────
-  await Menu.create({ name: 'Chapati', type: 'BOM', bom: chapati._id, unit: 'pcs', entity: EID });
-  await Menu.create({ name: 'Salad',   type: 'BOM', bom: salad._id,   unit: 'pcs', entity: EID });
+  const chapatiMenu = await Menu.create({ name: 'Chapati', type: 'BOM', bom: chapati._id, unit: 'pcs', entity: EID });
+  const saladMenu   = await Menu.create({ name: 'Salad',   type: 'BOM', bom: salad._id,   unit: 'pcs', entity: EID });
+  await Bom.findByIdAndUpdate(chapati._id, { menuItem: chapatiMenu._id });
+  await Bom.findByIdAndUpdate(salad._id, { menuItem: saladMenu._id });
   console.log('✔  Menu items created');
 
   // ── Menu Rates ────────────────────────────────────────────────────────────

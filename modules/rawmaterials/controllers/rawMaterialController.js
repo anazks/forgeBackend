@@ -1,4 +1,5 @@
 const RawMaterial = require('../models/rawMaterialModel');
+const rawMaterialService = require('../services/rawMaterialService');
 
 // @desc    Get all raw materials
 // @route   GET /api/rawmaterials
@@ -110,20 +111,11 @@ exports.updateStock = async (req, res) => {
 };
 // @route   DELETE /api/rawmaterials/:id
 // @access  Private
-exports.deleteRawMaterial = async (req, res) => {
+exports.deleteRawMaterial = async (req, res, next) => {
     try {
-        const material = await RawMaterial.findById(req.params.id);
-        if (!material) {
-            return res.status(404).json({ success: false, error: 'Raw material not found' });
-        }
-
-        if (req.user.role !== 'SUPER_ADMIN' && material.entity?.toString() !== req.user.entity?.toString()) {
-            return res.status(401).json({ success: false, error: 'Not authorized' });
-        }
-
-        await material.deleteOne();
+        await rawMaterialService.deleteRawMaterial(req.params.id, req.user.entity, req.user.role);
         res.status(200).json({ success: true, data: {} });
     } catch (error) {
-        res.status(400).json({ success: false, error: error.message });
+        res.status(error.statusCode || 400).json({ success: false, error: error.message });
     }
 };

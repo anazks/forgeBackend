@@ -1,4 +1,5 @@
 const Vendor = require('../models/vendorModel');
+const vendorService = require('../services/vendorService');
 
 // @desc    Get all vendors
 // @route   GET /api/vendors
@@ -70,12 +71,11 @@ exports.updateVendor = async (req, res) => {
 // @desc    Delete vendor
 // @route   DELETE /api/vendors/:id
 // @access  Private
-exports.deleteVendor = async (req, res) => {
+exports.deleteVendor = async (req, res, next) => {
     try {
-        const vendor = await Vendor.findByIdAndDelete(req.params.id);
-        if (!vendor) return res.status(404).json({ success: false, error: 'Vendor not found' });
+        await vendorService.deleteVendor(req.params.id, req.user.entity, req.user.role);
         res.status(200).json({ success: true, data: {} });
     } catch (error) {
-        res.status(400).json({ success: false, error: error.message });
+        res.status(error.statusCode || 400).json({ success: false, error: error.message });
     }
 };

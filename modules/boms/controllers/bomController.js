@@ -1,4 +1,5 @@
 const Bom = require('../models/bomModel');
+const bomService = require('../services/bomService');
 
 // @desc    Get all BOMs
 // @route   GET /api/boms
@@ -75,18 +76,9 @@ exports.updateBom = async (req, res, next) => {
 // @access  Private
 exports.deleteBom = async (req, res, next) => {
     try {
-        let bom = await Bom.findById(req.params.id);
-        if (!bom) {
-            return res.status(404).json({ success: false, error: 'BOM not found' });
-        }
-
-        if (req.user.role !== 'SUPER_ADMIN' && bom.entity.toString() !== req.user.entity.toString()) {
-            return res.status(401).json({ success: false, error: 'Not authorized to delete this BOM' });
-        }
-
-        await bom.deleteOne();
+        await bomService.deleteBom(req.params.id, req.user.entity, req.user.role);
         res.status(200).json({ success: true, data: {} });
     } catch (error) {
-        res.status(400).json({ success: false, error: error.message });
+        res.status(error.statusCode || 400).json({ success: false, error: error.message });
     }
 };
