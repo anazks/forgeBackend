@@ -68,6 +68,16 @@ app.get('/', (req, res) => {
     res.send('API is running...');
 });
 
+// Graceful shutdown endpoint for test code coverage
+if (process.env.NODE_ENV === 'test') {
+    app.post('/api/shutdown', (req, res) => {
+        res.send({ success: true, message: 'Server is shutting down...' });
+        setTimeout(() => {
+            process.exit(0);
+        }, 500);
+    });
+}
+
 app.use(errorHandler);
 
 const PORT = process.env.PORT || 5000;

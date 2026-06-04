@@ -17,15 +17,7 @@ class UserService {
             throw new AppError('User not found', 404);
         }
 
-        // 1. Check if configured as a preparation location in BOMs
-        const Bom = require('../../boms/models/bomModel');
-        const referencedBoms = await Bom.find({ preparationLocation: id }).select('dishName').lean();
-        if (referencedBoms.length > 0) {
-            const dishNames = referencedBoms.map(b => `"${b.dishName}"`).join(', ');
-            throw new AppError(`Deletion not possible: This location is configured as the preparation location for dish(es): ${dishNames}.`, 400);
-        }
-
-        // 2. Check active Internal Orders (dispatches/receipts)
+        // 1. Check active Internal Orders (dispatches/receipts)
         const InternalOrder = require('../../production/models/internalOrderModel');
         const activeOrders = await InternalOrder.find({
             $or: [{ sourceLocation: id }, { destinationLocation: id }],
@@ -33,6 +25,14 @@ class UserService {
         }).lean();
         if (activeOrders.length > 0) {
             throw new AppError('Deletion not possible: This location is associated with active production or dispatch orders.', 400);
+        }
+
+        // 2. Check if configured as a preparation location in BOMs
+        const Bom = require('../../boms/models/bomModel');
+        const referencedBoms = await Bom.find({ preparationLocation: id }).select('dishName').lean();
+        if (referencedBoms.length > 0) {
+            const dishNames = referencedBoms.map(b => `"${b.dishName}"`).join(', ');
+            throw new AppError(`Deletion not possible: This location is configured as the preparation location for dish(es): ${dishNames}.`, 400);
         }
 
         // 3. Check inventory stock levels

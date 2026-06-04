@@ -266,6 +266,10 @@ exports.updateBill = async (req, res, next) => {
         }
 
         const bill = await Bill.findByIdAndUpdate(req.params.id, req.body, { new: true });
+
+        if (req.body.paymentStatus === 'PAID' && bill.purchaseRequest) {
+            await PurchaseRequest.findByIdAndUpdate(bill.purchaseRequest, { status: 'CLOSED' });
+        }
         
         if (req.body.deliveryStatus === 'DELIVERED') {
             if (oldBill.deliveryStatus !== 'DELIVERED') {

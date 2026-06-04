@@ -8,7 +8,8 @@ const {
 const { 
     getMenuRates, 
     updateMenuRate,
-    updateMenuRatesBulk
+    updateMenuRatesBulk,
+    validateMenuRates
 } = require('../controllers/menuRateController');
 const { protect, authorize } = require('../../../middleware/auth');
 
@@ -24,6 +25,9 @@ router.route('/rates')
 
 router.route('/rates/bulk')
     .post(protect, updateMenuRatesBulk);
+
+router.route('/rates/validate')
+    .post(protect, validateMenuRates);
 
 router.route('/:id')
     .put(protect, updateMenu)

@@ -55,3 +55,17 @@ exports.updateMenuRatesBulk = async (req, res, next) => {
         next(error);
     }
 };
+
+// @desc    Validate menu rates for a location
+// @route   POST /api/menus/rates/validate
+// @access  Private
+exports.validateMenuRates = async (req, res, next) => {
+    try {
+        const { locationId, itemsList } = req.body;
+        const entityId = req.user.entity || req.body.entityId;
+        const result = await menuRateService.validateLocationPricing(entityId, locationId, itemsList);
+        res.status(200).json({ success: true, data: result });
+    } catch (error) {
+        next(error);
+    }
+};

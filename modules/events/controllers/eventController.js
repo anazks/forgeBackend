@@ -22,17 +22,26 @@ exports.getEvents = async (req, res) => {
 // @route   GET /api/events/upcoming
 exports.getUpcomingEvents = async (req, res) => {
     try {
-        const tomorrow = new Date();
-        tomorrow.setDate(tomorrow.getDate() + 1);
-        tomorrow.setHours(0, 0, 0, 0);
+        const now = new Date();
+        const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+        const istDate = new Date(utc + (3600000 * 5.5)); // Current time in IST
 
-        const endOfTomorrow = new Date(tomorrow);
-        endOfTomorrow.setHours(23, 59, 59, 999);
+        const tomorrow = new Date(istDate);
+        tomorrow.setDate(tomorrow.getDate() + 1);
+
+        const y = tomorrow.getFullYear();
+        const m = tomorrow.getMonth();
+        const d = tomorrow.getDate();
+
+        // 00:00:00 IST is 18:30:00 UTC of previous day
+        const start = new Date(Date.UTC(y, m, d - 1, 18, 30, 0, 0));
+        // 23:59:59.999 IST is 18:29:59.999 UTC of tomorrow
+        const end = new Date(Date.UTC(y, m, d, 18, 29, 59, 999));
 
         let query = {
             eventDate: {
-                $gte: tomorrow,
-                $lte: endOfTomorrow
+                $gte: start,
+                $lte: end
             }
         };
 

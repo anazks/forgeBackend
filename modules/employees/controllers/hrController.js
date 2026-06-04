@@ -90,41 +90,6 @@ exports.updateAndAcknowledgeRecord = async (req, res, next) => {
     }
 };
 
-// @desc    Close a Month
-// @route   POST /api/employees/year-views/:year/months/:month/close
-// @access  Private (HR/ADMIN)
-exports.closeMonth = async (req, res, next) => {
-    try {
-        const entityId = req.user.role === 'SUPER_ADMIN' ? req.body.entity : req.user.entity;
-        const closedMonth = await hrService.closeMonth(
-            Number(req.params.year),
-            Number(req.params.month),
-            req.user._id,
-            entityId
-        );
-        res.status(200).json({ success: true, data: closedMonth });
-    } catch (error) {
-        next(error);
-    }
-};
-
-// @desc    Unlock a Month
-// @route   POST /api/employees/year-views/:year/months/:month/unlock
-// @access  Private (ADMIN ONLY)
-exports.unlockMonth = async (req, res, next) => {
-    try {
-        const entityId = req.user.role === 'SUPER_ADMIN' ? req.body.entity : req.user.entity;
-        const result = await hrService.unlockMonth(
-            Number(req.params.year),
-            Number(req.params.month),
-            req.user.role,
-            entityId
-        );
-        res.status(200).json({ success: true, data: result });
-    } catch (error) {
-        next(error);
-    }
-};
 
 // @desc    Get HR Dashboard Metrics
 // @route   GET /api/employees/hr-dashboard

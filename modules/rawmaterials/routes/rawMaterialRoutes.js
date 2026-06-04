@@ -3,7 +3,8 @@ const {
     getRawMaterials,
     createRawMaterial,
     updateRawMaterial,
-    deleteRawMaterial
+    deleteRawMaterial,
+    updateStock
 } = require('../controllers/rawMaterialController');
 const { protect } = require('../../../middleware/auth');
 
@@ -17,6 +18,7 @@ router.route('/:id')
     .put(protect, updateRawMaterial)
     .delete(protect, deleteRawMaterial);
 
-// /:id/stock route removed — manual stock update replaced by aggregate from Inventory collection
+router.route('/:id/stock')
+    .put(protect, updateStock);
 
 module.exports = router;

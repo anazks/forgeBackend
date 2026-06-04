@@ -47,7 +47,7 @@ const PurchaseRequestSchema = new mongoose.Schema({
     },
     status: {
         type: String,
-        enum: ['PENDING', 'APPROVED', 'REJECTED', 'BILLED'],
+        enum: ['PENDING', 'APPROVED', 'REJECTED', 'BILLED', 'CLOSED'],
         default: 'PENDING'
     },
     notes: String,
