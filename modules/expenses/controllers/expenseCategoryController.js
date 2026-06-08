@@ -62,3 +62,29 @@ exports.deleteExpenseCategory = async (req, res) => {
         res.status(400).json({ success: false, error: error.message });
     }
 };
+
+// @desc    Update expense category
+// @route   PUT /api/expense-categories/:id
+exports.updateExpenseCategory = async (req, res) => {
+    try {
+        let category = await ExpenseCategory.findById(req.params.id);
+        if (!category) {
+            return res.status(404).json({ success: false, error: 'Category not found' });
+        }
+
+        // Maintain role-based authorization check
+        if (req.user.role !== 'SUPER_ADMIN' && category.entity && category.entity.toString() !== req.user.entity.toString()) {
+            return res.status(401).json({ success: false, error: 'Not authorized to update this category' });
+        }
+
+        category = await ExpenseCategory.findByIdAndUpdate(req.params.id, req.body, {
+            new: true,
+            runValidators: true
+        });
+
+        res.status(200).json({ success: true, data: category });
+    } catch (error) {
+        res.status(400).json({ success: false, error: error.message });
+    }
+};
+

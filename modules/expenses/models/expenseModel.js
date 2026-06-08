@@ -16,19 +16,6 @@ const ExpenseSchema = new mongoose.Schema({
     },
     category: {
         type: String,
-        enum: [
-            'Transport- Food',
-            'Petrol Expenses',
-            'Staff travelling Expenses',
-            'Staff Welfare Expenses',
-            'Cleaning Charges',
-            'Repair and Maintenance',
-            'Consumable Purchase',
-            'Rent',
-            'Gas',
-            'Electricity Charges',
-            'Water Charges'
-        ],
         required: [true, 'Please select a category']
     },
     amount: {

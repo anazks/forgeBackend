@@ -23,7 +23,8 @@ const BillSchema = new mongoose.Schema({
         quantity: Number,
         receivedQty: Number,
         unitPrice: Number,
-        total: Number
+        total: Number,
+        unit: String
     }],
     totalAmount: {
         type: Number,

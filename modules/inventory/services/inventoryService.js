@@ -129,7 +129,7 @@ class InventoryService {
         const materialIds = aggregated.map(a => a._id);
         const rawMaterials = await RawMaterial.find(
             { _id: { $in: materialIds } },
-            'name unit customUnit minimumStock simpleCode vendorName category'
+            'name unit customUnit minimumStock simpleCode category'
         ).lean();
 
         const rmMap = {};
@@ -145,7 +145,6 @@ class InventoryService {
                     name: rm.name,
                     unit: rm.unit,
                     customUnit: rm.customUnit,
-                    vendorName: rm.vendorName,
                     category: rm.category,
                     minimumStock: rm.minimumStock,
                     currentStock: a.totalStock,

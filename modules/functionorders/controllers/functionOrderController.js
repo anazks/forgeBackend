@@ -10,6 +10,16 @@ exports.createFunctionOrder = async (req, res, next) => {
     }
 };
 
+exports.updateFunctionOrder = async (req, res, next) => {
+    try {
+        const centerId = req.user._id;
+        const order = await functionOrderService.updateFunctionOrder(req.params.id, req.body, centerId);
+        res.status(200).json({ success: true, data: order });
+    } catch (error) {
+        next(error);
+    }
+};
+
 exports.getFunctionOrders = async (req, res, next) => {
     try {
         const isCorporate = ['ADMIN', 'SUPER_ADMIN', 'COO', 'FINANCE'].includes(req.user.role);
@@ -79,6 +89,38 @@ exports.acknowledgeByFinance = async (req, res, next) => {
 
         const { note } = req.body;
         const order = await functionOrderService.acknowledgeByFinance(req.params.id, note, req.user);
+        res.status(200).json({ success: true, data: order });
+    } catch (error) {
+        next(error);
+    }
+};
+
+exports.acknowledgeAdvanceByFinance = async (req, res, next) => {
+    try {
+        const userRole = req.user.role;
+        const isFinanceOrAdmin = ['FINANCE', 'COO', 'ADMIN', 'SUPER_ADMIN'].includes(userRole);
+        if (!isFinanceOrAdmin) {
+            throw new AppError('Access denied: only finance or admin/COO can acknowledge advances', 403);
+        }
+
+        const { note } = req.body;
+        const order = await functionOrderService.acknowledgeAdvanceByFinance(req.params.id, note, req.user);
+        res.status(200).json({ success: true, data: order });
+    } catch (error) {
+        next(error);
+    }
+};
+
+exports.acknowledgeFinalByFinance = async (req, res, next) => {
+    try {
+        const userRole = req.user.role;
+        const isFinanceOrAdmin = ['FINANCE', 'COO', 'ADMIN', 'SUPER_ADMIN'].includes(userRole);
+        if (!isFinanceOrAdmin) {
+            throw new AppError('Access denied: only finance or admin/COO can acknowledge settlements', 403);
+        }
+
+        const { note } = req.body;
+        const order = await functionOrderService.acknowledgeFinalByFinance(req.params.id, note, req.user);
         res.status(200).json({ success: true, data: order });
     } catch (error) {
         next(error);

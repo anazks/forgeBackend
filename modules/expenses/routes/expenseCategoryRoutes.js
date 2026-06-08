@@ -2,7 +2,8 @@ const express = require('express');
 const {
     getExpenseCategories,
     createExpenseCategory,
-    deleteExpenseCategory
+    deleteExpenseCategory,
+    updateExpenseCategory
 } = require('../controllers/expenseCategoryController');
 const { protect } = require('../../../middleware/auth');
 
@@ -13,6 +14,7 @@ router.route('/')
     .post(protect, createExpenseCategory);
 
 router.route('/:id')
+    .put(protect, updateExpenseCategory)
     .delete(protect, deleteExpenseCategory);
 
 module.exports = router;

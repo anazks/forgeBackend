@@ -46,7 +46,7 @@ exports.getDailyRevenue = async (req, res, next) => {
 // @access  Private
 exports.confirmRevenueTab = async (req, res, next) => {
     try {
-        const { date, tabType, salesData } = req.body;
+        const { date, tabType, salesData, isDraft } = req.body;
         if (!date || !tabType || !salesData) {
             return res.status(400).json({ success: false, error: 'date, tabType, and salesData are required fields' });
         }
@@ -62,13 +62,12 @@ exports.confirmRevenueTab = async (req, res, next) => {
             entityId = req.query.entity;
         }
 
-        const data = await revenueService.confirmRevenueTab(locationId, date, tabType, salesData, entityId);
+        const data = await revenueService.confirmRevenueTab(locationId, date, tabType, salesData, entityId, isDraft);
         res.status(200).json({ success: true, data });
     } catch (error) {
         next(error);
     }
 };
-
 // @desc    Close daily revenue and execute inventory deductions
 // @route   POST /api/revenue/daily/close
 // @access  Private

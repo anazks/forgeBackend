@@ -7,6 +7,11 @@ const EmployeeSchema = new mongoose.Schema({
         immutable: true,
         required: [true, 'Please add an employee code']
     },
+    customEmployeeCode: {
+        type: String,
+        trim: true,
+        default: ''
+    },
     employeeName: {
         type: String,
         required: [true, 'Please add an employee name']

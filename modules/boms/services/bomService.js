@@ -4,9 +4,36 @@ const { AppError } = require('../../../middleware/errorHandler');
 class BomService {
     async getBomsByEntity(entityId, isAdmin = false) {
         const query = isAdmin ? {} : { entity: entityId };
-        return await Bom.find(query)
-            .lean()
-            .select('menuItem entity dishName unit preparationLocation items');
+        const boms = await Bom.find(query).lean();
+        
+        const RawMaterial = require('../../rawmaterials/models/rawMaterialModel');
+        const rawMaterials = await RawMaterial.find(isAdmin ? {} : { entity: entityId }).lean();
+        
+        return boms.map(bom => {
+            const resolvedItems = (bom.items || []).map(item => {
+                if (item.type === 'BOM Item') {
+                    const subBom = boms.find(b => b._id.toString() === item.materialId?.toString());
+                    return {
+                        ...item,
+                        itemName: subBom ? subBom.dishName : item.itemName,
+                        unit: subBom ? subBom.unit : item.unit,
+                        customUnit: subBom ? subBom.customUnit : item.customUnit
+                    };
+                } else {
+                    const rm = rawMaterials.find(r => r._id.toString() === item.materialId?.toString());
+                    return {
+                        ...item,
+                        itemName: rm ? rm.name : item.itemName,
+                        unit: rm ? rm.unit : item.unit,
+                        customUnit: rm ? rm.customUnit : item.customUnit
+                    };
+                }
+            });
+            return {
+                ...bom,
+                items: resolvedItems
+            };
+        });
     }
 
     async deleteBom(id, entityId, userRole) {

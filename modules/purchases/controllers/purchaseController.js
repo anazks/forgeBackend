@@ -69,6 +69,14 @@ exports.deletePurchase = async (req, res, next) => {
 // @route   POST /api/purchases/requests
 exports.createPurchaseRequest = async (req, res, next) => {
     try {
+        const invalidPriceItem = (req.body.items || []).find(i => !i.unitPrice || Number(i.unitPrice) <= 0);
+        if (invalidPriceItem) {
+            return res.status(400).json({
+                success: false,
+                error: `All items must have a valid unit price greater than 0. Check item "${invalidPriceItem.itemName || 'unknown'}".`
+            });
+        }
+
         req.body.requestedBy = req.user._id;
         if (req.user.role !== 'SUPER_ADMIN') {
             req.body.entity = req.user.entity;
@@ -132,7 +140,8 @@ exports.createPurchaseRequest = async (req, res, next) => {
                 itemName: i.itemName,
                 quantity: i.requestedQty,
                 unitPrice: i.unitPrice || 0,
-                total: i.requestedQty * (i.unitPrice || 0)
+                total: i.requestedQty * (i.unitPrice || 0),
+                unit: i.unit
             }));
             await Bill.create({
                 purchaseRequest: pr._id,
@@ -198,7 +207,8 @@ exports.approvePurchaseRequest = async (req, res, next) => {
                 itemName: i.itemName,
                 quantity: i.approvedQty || i.requestedQty,
                 unitPrice: i.unitPrice || 0,
-                total: total
+                total: total,
+                unit: i.unit
             };
         });
 

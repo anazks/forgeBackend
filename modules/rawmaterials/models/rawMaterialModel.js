@@ -13,11 +13,6 @@ const RawMaterialSchema = new mongoose.Schema({
         immutable: true,
         match: [/^\d{4}$/, 'Simple code must be exactly 4 digits']
     },
-    vendorName: {
-        type: String,
-        trim: true,
-        default: ''
-    },
     category: {
         type: String,
         default: ''

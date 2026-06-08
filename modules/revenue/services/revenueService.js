@@ -6,6 +6,7 @@ const Menu = require('../../menus/models/menuModel');
 const Bom = require('../../boms/models/bomModel');
 const MenuRate = require('../../menus/models/menuRateModel');
 const User = require('../../users/models/model');
+const FoodRequest = require('../../stockrequests/models/stockRequestModel');
 const { AppError } = require('../../../middleware/errorHandler');
 
 class RevenueService {
@@ -69,6 +70,7 @@ class RevenueService {
             if (needsB2B && !record.b2bConfirmed) {
                 const orders = await InternalOrder.find({
                     sourceLocation: locationId,
+                    destinationLocation: { $ne: locationId },
                     entity: entityId,
                     dispatchedAt: { $gte: start, $lte: end },
                     status: { $in: ['DISPATCHED', 'PARTIAL_RECEIPT', 'RECEIVED', 'PARTIAL_DISPATCH'] }
@@ -113,6 +115,27 @@ class RevenueService {
             if (needsB2C && !record.b2cConfirmed) {
                 const b2cList = [];
 
+                // Query FoodRequests placed for today's delivery date
+                const requests = await FoodRequest.find({
+                    centerId: locationId,
+                    entity: entityId,
+                    deliveryDate: { $gte: start, $lte: end },
+                    status: { $ne: 'REJECTED' }
+                }).lean();
+
+                const requestedBomIds = new Set();
+                if (requests && requests.length > 0) {
+                    for (const reqDoc of requests) {
+                        if (reqDoc.requestedItems) {
+                            for (const item of reqDoc.requestedItems) {
+                                if (item.bomId) {
+                                    requestedBomIds.add(item.bomId.toString());
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // BOM Dishes delivered today
                 const receivedOrders = await InternalOrder.find({
                     destinationLocation: locationId,
@@ -130,7 +153,7 @@ class RevenueService {
                         if (item.bomId && item.receivedQty > 0) {
                             const bomIdStr = item.bomId.toString();
                             if (!bomMap[bomIdStr]) {
-                                const bom = await Bom.findById(item.bomId).lean().select('dishName unit isSoldB2C');
+                                const bom = await Bom.findById(item.bomId).lean().select('dishName unit isSoldB2C kitchenPrice');
                                 if (bom && bom.isSoldB2C !== false) {
                                     let rateDoc = await MenuRate.findOne({ bom: item.bomId, center: locationId }).lean();
                                     if (!rateDoc) {
@@ -156,6 +179,32 @@ class RevenueService {
                         }
                     }
                 }
+
+                // Ensure requested dishes for today are included even if stockQty is 0
+                for (const reqBomId of requestedBomIds) {
+                    if (!bomMap[reqBomId]) {
+                        const bom = await Bom.findById(reqBomId).lean().select('dishName unit isSoldB2C kitchenPrice');
+                        if (bom && bom.isSoldB2C !== false) {
+                            let rateDoc = await MenuRate.findOne({ bom: reqBomId, center: locationId }).lean();
+                            if (!rateDoc) {
+                                rateDoc = await MenuRate.findOne({ bom: reqBomId, center: null }).lean();
+                            }
+                            const price = rateDoc ? (rateDoc.centerRate || rateDoc.rate || 0) : 0;
+                            const buyingPrice = rateDoc ? (rateDoc.rate || 0) : (bom.kitchenPrice || 0);
+                            bomMap[reqBomId] = {
+                                bomId: new mongoose.Types.ObjectId(reqBomId),
+                                itemName: bom.dishName,
+                                itemType: 'BOM',
+                                unit: bom.unit || 'pcs',
+                                stockQty: 0,
+                                soldQty: 0,
+                                buyingPrice: buyingPrice,
+                                unitPrice: price
+                            };
+                        }
+                    }
+                }
+
                 b2cList.push(...Object.values(bomMap));
 
                 // BUG-C5 Fix: batch Inventory lookup for direct menu items (single query, not N+1)
@@ -208,7 +257,7 @@ class RevenueService {
     /**
      * Confirm individual tab entries (b2b, b2c, online)
      */
-    async confirmRevenueTab(locationId, dateStr, tabType, salesData, entityId) {
+    async confirmRevenueTab(locationId, dateStr, tabType, salesData, entityId, isDraft = false) {
         const { start, end } = this.getDateRange(dateStr);
 
         let record = await DailyRevenue.findOne({
@@ -230,10 +279,12 @@ class RevenueService {
         }
 
         if (tabType === 'b2b') {
-            // Verify all items have positive unitPrice
-            const invalidItem = salesData.find(item => !item.unitPrice || Number(item.unitPrice) <= 0);
-            if (invalidItem) {
-                throw new AppError(`B2B item "${invalidItem.itemName}" is missing a unit price. Please configure or edit it before confirming.`, 400);
+            if (!isDraft) {
+                // Verify all items have positive unitPrice
+                const invalidItem = salesData.find(item => !item.unitPrice || Number(item.unitPrice) <= 0);
+                if (invalidItem) {
+                    throw new AppError(`B2B item "${invalidItem.itemName}" is missing a unit price. Please configure or edit it before confirming.`, 400);
+                }
             }
             record.b2bSales = salesData.map(item => ({
                 bomId: item.bomId,
@@ -245,7 +296,7 @@ class RevenueService {
                 totalVal: (Number(item.quantity) || 0) * (Number(item.unitPrice) || 0),
                 isManual: !!item.isManual
             }));
-            record.b2bConfirmed = true;
+            record.b2bConfirmed = !isDraft;
         } else if (tabType === 'b2c') {
             let items = salesData;
             if (!Array.isArray(salesData) && salesData.b2cSales) {
@@ -297,13 +348,13 @@ class RevenueService {
             } else {
                 record.reportedDifference = totalB2C - (record.reportedCash + record.reportedOnline);
             }
-            record.b2cConfirmed = true;
+            record.b2cConfirmed = !isDraft;
         } else if (tabType === 'online') {
             record.onlineSales = {
                 totalSaleValue: Number(salesData.totalSaleValue) || 0,
                 aggregatorPercentage: Number(salesData.aggregatorPercentage) || 0
             };
-            record.onlineConfirmed = true;
+            record.onlineConfirmed = !isDraft;
         } else {
             throw new AppError('Invalid tab type', 400);
         }
@@ -795,9 +846,40 @@ class RevenueService {
             if (record.cashClosure) {
                 record.cashClosure.financeAcknowledged = true;
                 record.cashClosure.financeAcknowledgedAt = new Date();
+
+                // Auto-acknowledge linked Cash final payments
+                const FunctionOrder = require('../../functionorders/models/functionOrderModel');
+                for (const foId of record.cashClosure.functionOrderIds || []) {
+                    const fo = await FunctionOrder.findById(foId);
+                    if (fo) {
+                        fo.finalFinanceAcknowledged = true;
+                        fo.finalFinanceAcknowledgedAt = new Date();
+                        fo.finalFinanceNote = `Auto-acknowledged via Daily Cash Closure on ${dateStr}`;
+                        if (fo.advanceFinanceAcknowledged) {
+                            fo.status = 'CLOSED';
+                        }
+                        await fo.save();
+                    }
+                }
+
+                // Auto-acknowledge Cash advances booked on this day
+                const cashAdvances = await FunctionOrder.find({
+                    centerId: locationId,
+                    advancePaymentMode: 'Cash',
+                    bookingDate: { $gte: start, $lte: end },
+                    advanceFinanceAcknowledged: false
+                });
+                for (const fo of cashAdvances) {
+                    fo.advanceFinanceAcknowledged = true;
+                    fo.advanceFinanceAcknowledgedAt = new Date();
+                    fo.advanceFinanceNote = `Auto-acknowledged via Daily Cash Closure on ${dateStr}`;
+                    if (fo.finalFinanceAcknowledged) {
+                        fo.status = 'CLOSED';
+                    }
+                    await fo.save();
+                }
             }
         }
-
         await record.save();
         return record;
     }

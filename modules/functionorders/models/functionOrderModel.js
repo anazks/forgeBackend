@@ -106,6 +106,26 @@ const FunctionOrderSchema = new mongoose.Schema({
     financeNote: {
         type: String
     },
+    advanceFinanceAcknowledged: {
+        type: Boolean,
+        default: false
+    },
+    advanceFinanceAcknowledgedAt: {
+        type: Date
+    },
+    advanceFinanceNote: {
+        type: String
+    },
+    finalFinanceAcknowledged: {
+        type: Boolean,
+        default: false
+    },
+    finalFinanceAcknowledgedAt: {
+        type: Date
+    },
+    finalFinanceNote: {
+        type: String
+    },
     createdAt: {
         type: Date,
         default: Date.now

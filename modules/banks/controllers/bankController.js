@@ -12,7 +12,7 @@ exports.getBanks = async (req, res) => {
             query.entity = req.query.entity;
         }
 
-        const banks = await Bank.find(query);
+        const banks = await Bank.find(query).populate('locations', 'name role');
         res.status(200).json({ success: true, count: banks.length, data: banks });
     } catch (error) {
         res.status(400).json({ success: false, error: error.message });

@@ -12,21 +12,49 @@ class FunctionOrderService {
         if (!eventDate || !description || advancePaymentMode === undefined) {
             throw new AppError('Event date, description, and advance payment mode are required', 400);
         }
+        const parsedAdvance = Number(advanceAmount) || 0;
+        const advanceFinanceAcknowledged = parsedAdvance === 0;
+        const advanceFinanceAcknowledgedAt = advanceFinanceAcknowledged ? new Date() : null;
 
         const functionOrder = await FunctionOrder.create({
             centerId: user._id,
             entity: user.entity,
             eventDate: new Date(eventDate),
             description,
-            advanceAmount: Number(advanceAmount) || 0,
+            advanceAmount: parsedAdvance,
             advancePaymentMode,
             totalOrderValue: Number(totalOrderValue) || 0,
-            pendingReceivable: Math.max(0, (Number(totalOrderValue) || 0) - (Number(advanceAmount) || 0)),
+            pendingReceivable: Math.max(0, (Number(totalOrderValue) || 0) - parsedAdvance),
             dishes: dishes || [],
-            status: 'OPEN'
+            status: 'OPEN',
+            advanceFinanceAcknowledged,
+            advanceFinanceAcknowledgedAt
         });
 
         return functionOrder;
+    }
+
+    async updateFunctionOrder(id, data, centerId) {
+        const order = await FunctionOrder.findOne({ _id: id, centerId });
+        if (!order) {
+            throw new AppError('Function order not found', 404);
+        }
+        if (order.status !== 'OPEN') {
+            throw new AppError('Details can only be modified when the order is in OPEN status', 400);
+        }
+
+        const { eventDate, description, advanceAmount, advancePaymentMode, totalOrderValue } = data;
+
+        if (eventDate) order.eventDate = new Date(eventDate);
+        if (description !== undefined) order.description = description;
+        if (advanceAmount !== undefined) order.advanceAmount = Number(advanceAmount) || 0;
+        if (advancePaymentMode !== undefined) order.advancePaymentMode = advancePaymentMode;
+        if (totalOrderValue !== undefined) order.totalOrderValue = Number(totalOrderValue) || 0;
+
+        order.pendingReceivable = Math.max(0, order.totalOrderValue - order.advanceAmount - (order.finalPaymentAmount || 0));
+
+        await order.save();
+        return order;
     }
 
     async getFunctionOrders(searchId, isCorporate, statusFilter) {
@@ -142,17 +170,24 @@ class FunctionOrderService {
                 throw new AppError("Today's Cash Closure is already submitted. Cash settlements must be confirmed before submitting Cash Closure.", 400);
             }
         }
-
         order.finalPaymentMode = paymentMode;
-        order.finalPaymentAmount = Number(paymentAmount) || 0;
+        const parsedFinalAmount = Number(paymentAmount) || 0;
+        order.finalPaymentAmount = parsedFinalAmount;
         order.finalPaymentReceivedAt = new Date();
         order.pendingReceivable = Math.max(0, order.totalOrderValue - order.advanceAmount - order.finalPaymentAmount);
         order.status = 'SETTLED';
         order.linkedToCashClosure = false; // Cash Closure engine will link it later
 
+        if (parsedFinalAmount === 0) {
+            order.finalFinanceAcknowledged = true;
+            order.finalFinanceAcknowledgedAt = new Date();
+            if (order.advanceFinanceAcknowledged) {
+                order.status = 'CLOSED';
+            }
+        }
+
         await order.save();
-        return order;
-    }
+        return order;    }
 
     async linkToCashClosure(id, cashClosureDate) {
         const order = await FunctionOrder.findById(id);
@@ -173,7 +208,55 @@ class FunctionOrderService {
         order.financeNote = note || (order.finalPaymentMode === 'Cash' 
             ? "Cash collection confirmed at center. Deposit to be verified via Cash Receivables."
             : "");
+        
+        // Also mark both new split reconciliation fields true for backward compatibility
+        order.advanceFinanceAcknowledged = true;
+        order.advanceFinanceAcknowledgedAt = new Date();
+        order.finalFinanceAcknowledged = true;
+        order.finalFinanceAcknowledgedAt = new Date();
         order.status = 'CLOSED';
+
+        await order.save();
+        return order;
+    }
+
+    async acknowledgeAdvanceByFinance(id, note, financeUser) {
+        const order = await FunctionOrder.findById(id);
+        if (!order) {
+            throw new AppError('Function order not found', 404);
+        }
+
+        order.advanceFinanceAcknowledged = true;
+        order.advanceFinanceAcknowledgedAt = new Date();
+        order.advanceFinanceNote = note || (order.advancePaymentMode === 'Cash' 
+            ? "Cash advance collection confirmed at center."
+            : "");
+
+        // If final payment is also already acknowledged, close the order
+        if (order.finalFinanceAcknowledged) {
+            order.status = 'CLOSED';
+        }
+
+        await order.save();
+        return order;
+    }
+
+    async acknowledgeFinalByFinance(id, note, financeUser) {
+        const order = await FunctionOrder.findById(id);
+        if (!order) {
+            throw new AppError('Function order not found', 404);
+        }
+
+        order.finalFinanceAcknowledged = true;
+        order.finalFinanceAcknowledgedAt = new Date();
+        order.finalFinanceNote = note || (order.finalPaymentMode === 'Cash' 
+            ? "Cash collection confirmed at center. Deposit to be verified via Cash Receivables."
+            : "");
+
+        // If advance is also already acknowledged, close the order
+        if (order.advanceFinanceAcknowledged) {
+            order.status = 'CLOSED';
+        }
 
         await order.save();
         return order;
@@ -233,22 +316,36 @@ class FunctionOrderService {
     }
 
     async getPendingFinanceOrders(entityId) {
-        const nonCash = await FunctionOrder.find({
+        // 1. Fetch pending advances (where advanceAmount > 0 and not yet acknowledged by finance)
+        const pendingAdvances = await FunctionOrder.find({
             entity: entityId,
-            status: 'SETTLED',
-            finalPaymentMode: { $ne: 'Cash' },
-            financeAcknowledged: false
+            advanceAmount: { $gt: 0 },
+            advanceFinanceAcknowledged: false
         }).populate('centerId', 'name').lean();
 
-        const cash = await FunctionOrder.find({
+        // 2. Fetch pending final payments (where order is SETTLED and final payment is not yet acknowledged)
+        // For cash settlements, they must be linked to daily cash closure first.
+        // For non-cash settlements, they are ready for reconciliation immediately.
+        const pendingFinalPayments = await FunctionOrder.find({
             entity: entityId,
             status: 'SETTLED',
-            finalPaymentMode: 'Cash',
-            linkedToCashClosure: true,
-            financeAcknowledged: false
+            finalFinanceAcknowledged: false,
+            $or: [
+                { finalPaymentMode: { $ne: 'Cash' } },
+                { finalPaymentMode: 'Cash', linkedToCashClosure: true }
+            ]
         }).populate('centerId', 'name').lean();
 
-        return { nonCash, cash };
+        // Return both structures to maintain legacy compatibility if needed
+        const legacyNonCash = pendingFinalPayments.filter(fo => fo.finalPaymentMode !== 'Cash');
+        const legacyCash = pendingFinalPayments.filter(fo => fo.finalPaymentMode === 'Cash');
+
+        return { 
+            pendingAdvances, 
+            pendingFinalPayments,
+            nonCash: legacyNonCash,
+            cash: legacyCash
+        };
     }
 }
 

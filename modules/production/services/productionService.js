@@ -8,6 +8,7 @@ class ProductionService {
             .populate('sourceLocation', 'name')
             .populate('destinationLocation', 'name')
             .populate('items.bomId', 'dishName')
+            .populate('foodRequestId', 'functionOrderId')
             .sort({ createdAt: -1 })
             .lean();
     }

@@ -25,10 +25,29 @@ exports.getMenus = async (req, res, next) => {
 
         console.log(`[DEBUG] Fetching menus. Role: ${req.user.role}, EntityID: ${req.user.entity}`);
         
-        const menus = await Menu.find(query);
-        console.log(`[DEBUG] Found ${menus.length} menus for query:`, query);
+        const menus = await Menu.find(query).lean();
         
-        res.status(200).json({ success: true, count: menus.length, data: menus });
+        const Bom = require('../../boms/models/bomModel');
+        const boms = await Bom.find(query).lean();
+        
+        const resolvedMenus = menus.map(m => {
+            if (m.type === 'BOM' && m.bom) {
+                const linkedBom = boms.find(b => b._id.toString() === m.bom.toString());
+                if (linkedBom) {
+                    return {
+                        ...m,
+                        name: linkedBom.dishName,
+                        unit: linkedBom.unit,
+                        customUnit: linkedBom.customUnit
+                    };
+                }
+            }
+            return m;
+        });
+
+        console.log(`[DEBUG] Found ${resolvedMenus.length} menus (resolved BOM names/units) for query:`, query);
+        
+        res.status(200).json({ success: true, count: resolvedMenus.length, data: resolvedMenus });
     } catch (error) {
         console.error('Error in getMenus:', error);
         res.status(400).json({ success: false, error: error.message });

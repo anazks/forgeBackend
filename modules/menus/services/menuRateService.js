@@ -16,7 +16,10 @@ class MenuRateService {
         }
 
         if (!isAdmin && locationId) {
-            query.center = locationId;
+            query.$or = [
+                { center: locationId },
+                { center: null }
+            ];
         }
 
         return await MenuRate.find(query)
