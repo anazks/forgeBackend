@@ -619,7 +619,7 @@ class RevenueService {
         // Replaces the N+1 Expense.find() that was firing once per revenue record
         const Expense = require('../../expenses/models/expenseModel');
         const expenseAgg = await Expense.aggregate([
-            { $match: { entity: entityId, status: 'APPROVED' } },
+            { $match: { entity: entityId, status: { $in: ['APPROVED', 'PENDING_FINANCE'] } } },
             {
                 $group: {
                     _id: {
@@ -627,7 +627,7 @@ class RevenueService {
                         // Truncate to date string YYYY-MM-DD for grouping
                         date: { $dateToString: { format: '%Y-%m-%d', date: '$date' } }
                     },
-                    totalAmount: { $sum: '$amount' }
+                    totalAmount: { $sum: { $ifNull: ['$approvedAmount', '$amount'] } }
                 }
             }
         ]);
@@ -739,9 +739,9 @@ class RevenueService {
             const recDateStr = new Date(record.date).toISOString().split('T')[0];
             const dayApprovedExpenses = expenses.filter(exp => {
                 const expDateStr = new Date(exp.date).toISOString().split('T')[0];
-                return expDateStr === recDateStr && exp.status === 'APPROVED';
+                return expDateStr === recDateStr && ['APPROVED', 'PENDING_FINANCE'].includes(exp.status);
             });
-            record.approvedExpensesAmount = dayApprovedExpenses.reduce((sum, exp) => sum + (exp.amount || 0), 0);
+            record.approvedExpensesAmount = dayApprovedExpenses.reduce((sum, exp) => sum + (exp.approvedAmount !== undefined ? exp.approvedAmount : exp.amount || 0), 0);
         }
 
         const Bank = require('../../banks/models/bankModel');
@@ -814,7 +814,7 @@ class RevenueService {
                 locationId,
                 entity: user.entity,
                 date: { $gte: start, $lte: end },
-                status: 'APPROVED'
+                status: { $in: ['APPROVED', 'PENDING_FINANCE'] }
             }).lean();
             const approvedExpensesAmount = dayExpenses.reduce((sum, exp) => sum + (exp.approvedAmount !== undefined ? exp.approvedAmount : exp.amount), 0);
 
@@ -846,6 +846,13 @@ class RevenueService {
             if (record.cashClosure) {
                 record.cashClosure.financeAcknowledged = true;
                 record.cashClosure.financeAcknowledgedAt = new Date();
+
+                // Auto-approve associated cash expenses from PENDING_FINANCE to APPROVED
+                const Expense = require('../../expenses/models/expenseModel');
+                await Expense.updateMany(
+                    { _id: { $in: record.cashClosure.expenseIds || [] }, status: 'PENDING_FINANCE' },
+                    { status: 'APPROVED' }
+                );
 
                 // Auto-acknowledge linked Cash final payments
                 const FunctionOrder = require('../../functionorders/models/functionOrderModel');
@@ -1118,7 +1125,7 @@ class RevenueService {
             const exp = await Expense.findById(expUpdate.expenseId);
             if (exp) {
                 exp.approvedAmount = Number(expUpdate.approvedAmount) || 0;
-                exp.status = 'APPROVED';
+                exp.status = 'PENDING_FINANCE';
                 await exp.save();
                 totalApprovedExpenses += exp.approvedAmount;
             }
@@ -1129,7 +1136,7 @@ class RevenueService {
         });
         for (const exp of remainingExpenses) {
             exp.approvedAmount = exp.amount;
-            exp.status = 'APPROVED';
+            exp.status = 'PENDING_FINANCE';
             await exp.save();
             totalApprovedExpenses += exp.approvedAmount;
         }
@@ -1191,6 +1198,10 @@ class RevenueService {
 
         record.cooApproved = true;
         record.cooApprovedAt = new Date();
+        if (user.role === 'KITCHEN') {
+            record.financeReconciled = true;
+            record.financeReconciledAt = new Date();
+        }
         await record.save();
 
         if (record.cashClosure) {
@@ -1206,8 +1217,7 @@ class RevenueService {
     async getPendingCooCashClosures(entityId) {
         return await DailyRevenue.find({
             entity: entityId,
-            status: 'CLOSED',
-            cooApproved: false
+            status: 'CLOSED'
         }).populate('locationId', 'name role').lean();
     }
 
